@@ -24,7 +24,12 @@ Thumbs.db
 .idea/
 .vscode/
 *.suo
-*.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# Local signing keys (generate your own — never commit private keys)
+keys/
+
+# Local cargo config (env-specific global target-dir)
+.cargo/
