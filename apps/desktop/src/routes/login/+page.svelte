@@ -11,7 +11,7 @@
 
   // Helper demo PINs to make testing/reviewing super easy for the user
   const demoUsers = [
-    { name: "Owner", pin: "123456", desc: "Akses Penuh" },
+    { name: "Owner", pin: "9999", desc: "Akses Penuh" },
     { name: "Supervisor", pin: "1234", desc: "Refund & Void" },
     { name: "Cashier", pin: "1111", desc: "Transaksi Kasir" }
   ];

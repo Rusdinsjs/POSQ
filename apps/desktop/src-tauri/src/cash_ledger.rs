@@ -53,7 +53,7 @@ pub async fn post_cash_in(
         .bind(&outlet_id)
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| "Laci kasir tidak ditemukan untuk outlet ini".to_string())?;
+        .map_err(|_| "Laci kasir tidak ditemukan untuk outlet ini".to_string())?;
     
     let drawer_id: String = drawer.get("id");
 
@@ -131,7 +131,7 @@ pub async fn post_cash_out(
         .bind(&outlet_id)
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| "Laci kasir tidak ditemukan untuk outlet ini".to_string())?;
+        .map_err(|_| "Laci kasir tidak ditemukan untuk outlet ini".to_string())?;
     
     let drawer_id: String = drawer.get("id");
 
@@ -241,7 +241,7 @@ pub async fn post_safe_drop(
         .bind(&outlet_id)
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| "Laci kasir tidak ditemukan untuk outlet ini".to_string())?;
+        .map_err(|_| "Laci kasir tidak ditemukan untuk outlet ini".to_string())?;
     
     let drawer_id: String = drawer.get("id");
 

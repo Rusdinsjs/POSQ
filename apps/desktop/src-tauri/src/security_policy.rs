@@ -5,6 +5,7 @@ use uuid::Uuid;
 use chrono::{Utc, Duration};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[allow(non_camel_case_types)]
 pub enum PolicyDecision {
     ALLOW,
     REQUIRE_SUPERVISOR,
@@ -13,6 +14,7 @@ pub enum PolicyDecision {
 }
 
 impl PolicyDecision {
+    #[allow(dead_code)]
     pub fn to_string(&self) -> String {
         match self {
             PolicyDecision::ALLOW => "ALLOW".to_string(),
@@ -292,7 +294,7 @@ pub async fn verify_supervisor_pin(
 pub async fn validate_and_consume_grant(
     transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     grant_id: Uuid,
-    action_type: &str,
+    _action_type: &str,
 ) -> Result<String, String> {
     let now = Utc::now().naive_utc().format("%Y-%m-%d %H:%M:%S").to_string();
 

@@ -2,7 +2,6 @@ use sqlx::{SqlitePool, Row};
 use tauri::State;
 use uuid::Uuid;
 use serde_json::{json, Value};
-use chrono::Utc;
 
 #[tauri::command]
 pub async fn run_fraud_checks(

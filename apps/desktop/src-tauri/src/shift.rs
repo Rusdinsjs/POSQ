@@ -64,7 +64,7 @@ pub async fn check_active_shift(pool: State<'_, SqlitePool>) -> Result<ShiftStat
 #[tauri::command]
 pub async fn open_shift(
     starting_cash: i32, 
-    denominations: Vec<DenominationItem>,
+    _denominations: Vec<DenominationItem>,
     pool: State<'_, SqlitePool>
 ) -> Result<Uuid, String> {
     crate::license::enforce_active_license().await?;

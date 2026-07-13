@@ -28,6 +28,7 @@ mod ecr;
 mod security_policy;
 mod cash_ledger;
 mod fraud_detection;
+mod users;
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -225,7 +226,17 @@ pub fn run() {
             fraud_detection::resolve_fraud_alert,
             auth::login_user,
             auth::logout_user,
-            auth::get_active_session
+            auth::get_active_session,
+            users::list_users,
+            users::get_user_detail,
+            users::create_user,
+            users::update_user_status,
+            users::update_user_name,
+            users::reset_user_pin,
+            users::unlock_user,
+            users::assign_user_role,
+            users::revoke_user_role,
+            users::list_roles
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -710,6 +710,7 @@ pub async fn commit_split_bill(
 #[derive(Deserialize, Debug, Clone)]
 pub struct JoinBillsRequest {
     pub bill_ids: Vec<String>,
+    #[allow(dead_code)]
     pub target_table_id: String,
     pub idempotency_key: String,
     pub authorized_by: Option<String>,

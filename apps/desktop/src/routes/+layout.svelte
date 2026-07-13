@@ -122,6 +122,11 @@
                         <a href="/settings" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname === '/settings' || $page.url.pathname.startsWith('/settings/') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
                             ⚙️ Pengaturan
                         </a>
+                        {#if authState.session?.roles.some(r => ['owner', 'manager'].includes(r))}
+                            <a href="/settings/users" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname.startsWith('/settings/users') ? 'bg-violet-50 text-violet-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
+                                👥 Pengguna
+                            </a>
+                        {/if}
                     </nav>
                     
                     <!-- Right Actions: User Status & Logout -->
@@ -195,6 +200,11 @@
                         <a href="/settings" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname === '/settings' || $page.url.pathname.startsWith('/settings/') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
                             <span class="text-base">⚙️</span> <span>Pengaturan</span>
                         </a>
+                        {#if authState.session?.roles.some(r => ['owner', 'manager'].includes(r))}
+                            <a href="/settings/users" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname.startsWith('/settings/users') ? 'bg-violet-50 text-violet-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
+                                <span class="text-base">👥</span> <span>Manajemen Pengguna</span>
+                            </a>
+                        {/if}
 
                         {#if authState.session}
                             <div class="border-t border-slate-100 pt-4 mt-2 flex items-center justify-between px-4">

@@ -10,6 +10,7 @@ use chrono::{Utc, Duration};
 use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[allow(dead_code)]
 pub struct UserSession {
     pub id: String,
     pub user_id: String,
