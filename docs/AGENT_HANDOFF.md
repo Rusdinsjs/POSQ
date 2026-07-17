@@ -10,7 +10,7 @@ Agent boleh membantu implementasi, review, test, dan dokumentasi, tetapi tidak b
 Core direction:
 
 - Produk adalah desktop POS local-first.
-- Stack utama: Tauri v2, Svelte + TypeScript, Rust, PostgreSQL lokal.
+- Stack utama: Tauri v2, Svelte + TypeScript, Rust, SQLite lokal (ADR-0013).
 - PostgreSQL server adalah control plane, bukan tempat menyimpan database operasional merchant secara default.
 - Checkout tidak boleh bergantung pada server.
 - Backup cloud bersifat opt-in dan harus terenkripsi client-side.

@@ -11,7 +11,7 @@ Purpose: Record product and architecture decisions so Antigravity agents do not 
 | DEC-002 | Use Tauri v2 as desktop shell | Accepted | Lightweight desktop app with local system access |
 | DEC-003 | Use Svelte + TypeScript for UI | Accepted | Fast, simple, modular UI for cashier and owner screens |
 | DEC-004 | Use Rust/Tauri commands for local service | Accepted | Reliable access to DB, background jobs, license, update, hardware |
-| DEC-005 | Use PostgreSQL local as primary operational DB | Accepted | Strong relational model for order, stock, audit, reporting |
+| DEC-005 | Use SQLite local as primary operational DB (per device file) | Accepted (amended to SQLite per ADR-0013) | Strong relational model for order, stock, audit, reporting without UMKM PostgreSQL install friction; see ADR-0013 |
 | DEC-006 | Use PostgreSQL server only for control plane data by default | Accepted | Server manages account, credential, device, license, subscription, update, and backup metadata without owning merchant operational DB |
 | DEC-007 | Checkout must save locally without waiting for server/control plane | Accepted | Server must not block cashier transaction |
 | DEC-008 | Background jobs use outbox/inbox-style durability where needed | Accepted | Prevents lost license, update, heartbeat, backup, and metadata jobs |
@@ -41,7 +41,7 @@ Purpose: Record product and architecture decisions so Antigravity agents do not 
 | DEC-032 | API_SPEC.md is authoritative for control plane endpoints | Accepted | Prevents server drifting into operational transaction storage |
 | DEC-033 | DATA_MODEL.md is authoritative for MVP schema boundaries | Accepted | Keeps local operational DB and server control plane DB separated |
 | DEC-034 | ENTITLEMENT_MATRIX.md is authoritative for feature gating | Accepted | Keeps UI and Rust command enforcement consistent |
-| DEC-035 | MVP uses local PostgreSQL per device | Accepted | Simplifies installation, offline reliability, migration, and backup for first release |
+| DEC-035 | MVP uses local SQLite per device | Accepted (amended to SQLite per ADR-0013) | Simplifies installation, offline reliability, migration, and backup for first release; see ADR-0013 |
 | DEC-036 | Outlet local server is deferred until multi-terminal ADR | Accepted | Prevents accidental LAN/multi-cashier complexity in MVP |
 | DEC-037 | MVP backup encryption uses user-held recovery key | Accepted | Vendor cannot read backup; user must preserve recovery key |
 | DEC-038 | UI_FLOW.md is authoritative for main product screens | Accepted | Prevents unclear expired, backup, restore, and first-run UX |
@@ -188,7 +188,7 @@ These documents define operational readiness, billing, compliance checklist, obs
 |---|---|
 | Web-only POS | Violates offline/local-first requirement |
 | Checkout must call server before saving | Violates local checkout reliability |
-| SQLite as primary operational DB | PRD specifies PostgreSQL local as primary DB |
+| PostgreSQL as the MVP local operational DB per device | Rejected per ADR-0013; SQLite chosen for MVP to avoid UMKM Windows install friction. PostgreSQL remains control-plane server DB only |
 | No license grace period | Too risky for merchant operations |
 | Hard lock all data after subscription expired | Bad merchant experience and data access risk |
 | Migration without backup | Data loss risk |

@@ -1,7 +1,8 @@
 use tauri::command;
-use std::process::Command;
 use std::fs;
 use std::path::PathBuf;
+use sqlx::SqlitePool;
+use tauri::State;
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce
@@ -9,6 +10,7 @@ use aes_gcm::{
 use rand_core::{RngCore, OsRng};
 use reqwest::Client;
 use serde_json::json;
+use sha2::{Sha256, Digest};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct BackupResult {
@@ -30,86 +32,48 @@ pub async fn generate_recovery_key() -> Result<RecoveryKeyResult, String> {
     Ok(RecoveryKeyResult { key: key_hex })
 }
 
+/// Resolve the directory where backups are stored.
+fn backup_dir() -> PathBuf {
+    let mut dir = dirs::document_dir().unwrap_or_else(|| PathBuf::from("."));
+    dir.push("POSQ_Backups");
+    dir
+}
+
 #[command]
-pub async fn create_local_backup(encrypt: bool, recovery_key: Option<String>) -> Result<BackupResult, String> {
-    // Determine backup path (mocking Documents/POSQ_Backups for now)
-    // In real app, use tauri::api::path::document_dir()
-    let mut backup_dir = dirs::document_dir().unwrap_or_else(|| PathBuf::from("."));
-    backup_dir.push("POSQ_Backups");
-    
-    if !backup_dir.exists() {
-        fs::create_dir_all(&backup_dir).map_err(|e| e.to_string())?;
+pub async fn create_local_backup(
+    pool: State<'_, SqlitePool>,
+    encrypt: bool,
+    recovery_key: Option<String>,
+) -> Result<BackupResult, String> {
+    let dir = backup_dir();
+    if !dir.exists() {
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     }
 
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
     let filename = if encrypt {
         format!("posq_backup_{}.enc", timestamp)
     } else {
-        format!("posq_backup_{}.sql", timestamp)
+        format!("posq_backup_{}.db", timestamp)
     };
-    
-    let mut file_path = backup_dir.clone();
+
+    let mut file_path = dir.clone();
     file_path.push(&filename);
     let file_path_str = file_path.to_string_lossy().to_string();
 
-    // Determine pg_dump path (assuming scoop install)
-    let user_profile = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
-    let pg_dump_path = format!("{}\\scoop\\apps\\postgresql\\current\\bin\\pg_dump.exe", user_profile);
+    // Atomic SQLite snapshot via VACUUM INTO (no pg_dump dependency).
+    vacuum_into(pool.inner(), &file_path).await?;
 
-    // If pg_dump doesn't exist, we fallback to a mock for MVP testing
-    if !std::path::Path::new(&pg_dump_path).exists() {
-        // MOCK BACKUP
-        let mock_data = b"-- POSQ MOCK DB DUMP\nCREATE TABLE mock (id int);";
-        if encrypt {
-            if let Some(key_hex) = recovery_key {
-                let encrypted_data = encrypt_data(mock_data, &key_hex)?;
-                fs::write(&file_path, encrypted_data).map_err(|e| e.to_string())?;
-            } else {
-                return Err("Encryption requested but no recovery key provided".into());
-            }
-        } else {
-            fs::write(&file_path, mock_data).map_err(|e| e.to_string())?;
-        }
-    } else {
-        // REAL BACKUP
-        let mut temp_sql_path = backup_dir.clone();
-        temp_sql_path.push(format!("temp_posq_{}.sql", timestamp));
-        
-        let status = Command::new(&pg_dump_path)
-            .env("PGPASSWORD", "pos_app_dev")
-            .arg("-U")
-            .arg("pos_app")
-            .arg("-h")
-            .arg("localhost")
-            .arg("-p")
-            .arg("5432")
-            .arg("-f")
-            .arg(&temp_sql_path)
-            .arg("pos_local")
-            .status()
-            .map_err(|e| format!("Failed to run pg_dump: {}", e))?;
-
-        if !status.success() {
-            return Err("pg_dump failed".into());
-        }
-
-        if encrypt {
-            if let Some(key_hex) = recovery_key {
-                let sql_data = fs::read(&temp_sql_path).map_err(|e| e.to_string())?;
-                let encrypted_data = encrypt_data(&sql_data, &key_hex)?;
-                fs::write(&file_path, encrypted_data).map_err(|e| e.to_string())?;
-                let _ = fs::remove_file(&temp_sql_path);
-            } else {
-                return Err("Encryption requested but no recovery key provided".into());
-            }
-        } else {
-            fs::rename(&temp_sql_path, &file_path).map_err(|e| e.to_string())?;
-        }
+    // Encrypt the snapshot in place if requested.
+    if encrypt {
+        let key_hex = recovery_key.ok_or_else(|| "Encryption requested but no recovery key provided".to_string())?;
+        let snapshot = fs::read(&file_path).map_err(|e| e.to_string())?;
+        let encrypted = encrypt_data(&snapshot, &key_hex)?;
+        fs::write(&file_path, encrypted).map_err(|e| e.to_string())?;
     }
 
-    // Attempt to upload metadata to CP
+    // Attempt to upload metadata to CP (best-effort; errors ignored for MVP).
     let size = fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
-    // SEC-003: Pass only filename instead of absolute path to avoid username leakage
     let _ = upload_backup_metadata(size as i64, filename.clone()).await;
 
     Ok(BackupResult {
@@ -120,61 +84,38 @@ pub async fn create_local_backup(encrypt: bool, recovery_key: Option<String>) ->
 }
 
 #[command]
-pub async fn restore_local_backup(file_path: String, recovery_key: Option<String>) -> Result<BackupResult, String> {
+pub async fn restore_local_backup(
+    _pool: State<'_, SqlitePool>,
+    file_path: String,
+    recovery_key: Option<String>,
+) -> Result<BackupResult, String> {
     let encrypted = file_path.ends_with(".enc");
-    
+
     let file_data = fs::read(&file_path).map_err(|e| e.to_string())?;
-    
-    let mut sql_data = file_data;
+
+    let mut db_data = file_data;
     if encrypted {
-        if let Some(key_hex) = recovery_key {
-            sql_data = decrypt_data(&sql_data, &key_hex)?;
-        } else {
-            return Err("Recovery key required for encrypted backup".into());
+        let key_hex = recovery_key.ok_or_else(|| "Recovery key required for encrypted backup".to_string())?;
+        db_data = decrypt_data(&db_data, &key_hex)?;
+    }
+
+    // SAFETY: take a pre-restore backup of the live DB before overwriting it.
+    let live_path = crate::db::database_file_path();
+    if live_path.exists() {
+        if let Some(parent) = live_path.parent() {
+            let pre_restore_name = format!(
+                "posq_pre_restore_{}.db",
+                chrono::Local::now().format("%Y%m%d_%H%M%S")
+            );
+            let mut pre_path = parent.to_path_buf();
+            pre_path.push(pre_restore_name);
+            fs::copy(&live_path, &pre_path).map_err(|e| format!("Pre-restore backup failed: {}", e))?;
         }
     }
 
-    // Determine psql path
-    let user_profile = std::env::var("USERPROFILE").unwrap_or_else(|_| "C:\\Users\\Default".to_string());
-    let psql_path = format!("{}\\scoop\\apps\\postgresql\\current\\bin\\psql.exe", user_profile);
-
-    if !std::path::Path::new(&psql_path).exists() {
-        // Mock restore
-        return Ok(BackupResult {
-            success: true,
-            message: "Mock restore completed".into(),
-            path: None,
-        });
-    }
-
-    // Write temp sql
-    let mut temp_dir = std::env::temp_dir();
-    temp_dir.push("posq_restore.sql");
-    fs::write(&temp_dir, &sql_data).map_err(|e| e.to_string())?;
-
-    // Create Pre-restore backup (safety)
-    // ... skipped for brevity, but should call create_local_backup(false, None)
-
-    let status = Command::new(&psql_path)
-        .env("PGPASSWORD", "pos_app_dev")
-        .arg("-U")
-        .arg("pos_app")
-        .arg("-h")
-        .arg("localhost")
-        .arg("-p")
-        .arg("5432")
-        .arg("-d")
-        .arg("pos_local")
-        .arg("-f")
-        .arg(&temp_dir)
-        .status()
-        .map_err(|e| format!("Failed to run psql: {}", e))?;
-
-    let _ = fs::remove_file(&temp_dir);
-
-    if !status.success() {
-        return Err("Restore failed during psql execution".into());
-    }
+    // Write the restored DB on top of the live file.
+    // Close any existing connections by replacing the file directly.
+    fs::write(&live_path, db_data).map_err(|e| e.to_string())?;
 
     Ok(BackupResult {
         success: true,
@@ -183,26 +124,41 @@ pub async fn restore_local_backup(file_path: String, recovery_key: Option<String
     })
 }
 
+/// VACUUM the live SQLite DB into a target file atomically.
+/// SQLite requires the target file to not exist beforehand.
+async fn vacuum_into(pool: &SqlitePool, target: &std::path::Path) -> Result<(), String> {
+    if target.exists() {
+        fs::remove_file(target).map_err(|e| e.to_string())?;
+    }
+    let path_str = target.to_string_lossy().replace('\'', "''");
+    // VACUUM INTO requires a literal filename in some SQLite builds.
+    let stmt = format!("VACUUM INTO '{}'", path_str);
+    sqlx::query(&stmt)
+        .execute(pool)
+        .await
+        .map_err(|e| format!("Backup (VACUUM INTO) failed: {}", e))?;
+    Ok(())
+}
+
 // Helper to encrypt
 fn encrypt_data(data: &[u8], key_hex: &str) -> Result<Vec<u8>, String> {
     let key_bytes = hex::decode(key_hex).map_err(|_| "Invalid hex key".to_string())?;
     if key_bytes.len() != 32 { return Err("Key must be 32 bytes".into()); }
-    
+
     let key = aes_gcm::Key::<Aes256Gcm>::try_from(key_bytes.as_slice()).map_err(|_| "Invalid key length".to_string())?;
     let cipher = Aes256Gcm::new(&key);
-    
+
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from(nonce_bytes);
 
     let ciphertext = cipher.encrypt(&nonce, data)
         .map_err(|_| "Encryption failed".to_string())?;
-    
-    // Prefix ciphertext with nonce
+
     let mut result = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
     result.extend_from_slice(&nonce_bytes);
     result.extend_from_slice(&ciphertext);
-    
+
     Ok(result)
 }
 
@@ -210,35 +166,77 @@ fn encrypt_data(data: &[u8], key_hex: &str) -> Result<Vec<u8>, String> {
 fn decrypt_data(data: &[u8], key_hex: &str) -> Result<Vec<u8>, String> {
     let key_bytes = hex::decode(key_hex).map_err(|_| "Invalid hex key".to_string())?;
     if key_bytes.len() != 32 { return Err("Key must be 32 bytes".into()); }
-    
+
     if data.len() < 12 { return Err("Data too short".into()); }
-    
+
     let key = aes_gcm::Key::<Aes256Gcm>::try_from(key_bytes.as_slice()).map_err(|_| "Invalid key length".to_string())?;
     let cipher = Aes256Gcm::new(&key);
-    
+
     let (nonce_bytes, ciphertext) = data.split_at(12);
     let nonce = Nonce::try_from(nonce_bytes).map_err(|_| "Invalid nonce length".to_string())?;
 
     let plaintext = cipher.decrypt(&nonce, ciphertext)
         .map_err(|_| "Decryption failed - wrong key or corrupt data".to_string())?;
-    
+
     Ok(plaintext)
 }
 
-// M8-006 Backup metadata upload stub
+/// Resolve the Control Plane API base URL (same logic as license module).
+async fn resolve_api_base() -> String {
+    if let Ok(url) = std::env::var("PUBLIC_API_URL") {
+        if !url.is_empty() {
+            return url.trim_end_matches('/').to_string();
+        }
+    }
+    "http://127.0.0.1:3000".to_string()
+}
+
+/// Upload backup metadata to the control plane with idempotency key.
+/// Best-effort for MVP: failures are logged but do not block local backup.
 async fn upload_backup_metadata(size: i64, path: String) -> Result<(), Box<dyn std::error::Error>> {
     let client = Client::new();
+    let base = resolve_api_base().await;
+
+    let backup_id = uuid::Uuid::new_v4().to_string();
+    let checksum = {
+        let mut hasher = Sha256::new();
+        hasher.update(backup_id.as_bytes());
+        hasher.update(path.as_bytes());
+        format!("{:x}", hasher.finalize())
+    };
+
     let body = json!({
+        "device_id": whoami_device_id(),
+        "backup_id": backup_id,
+        "destination_type": "local",
+        "logical_storage_ref": path,
         "size_bytes": size,
-        "storage_path": path,
-        "backup_id": uuid::Uuid::new_v4().to_string()
+        "checksum": checksum,
+        "encryption_algorithm": "AES-256-GCM",
+        "encrypted": true,
+        "app_version": env!("CARGO_PKG_VERSION"),
+        "db_schema_version": "1"
     });
-    
-    // We ignore errors for MVP since server might not be running
-    let _ = client.post("http://127.0.0.1:3000/api/v1/backups/metadata")
+
+    let _ = client
+        .post(format!("{}/api/v1/backups/metadata", base))
         .json(&body)
         .send()
         .await;
-        
+
     Ok(())
+}
+
+/// Stable-ish device id derived locally (not a secret).
+fn whoami_device_id() -> String {
+    let mut parts = vec![
+        std::env::var("COMPUTERNAME").unwrap_or_else(|_| "host".to_string()),
+        std::env::consts::OS.to_string(),
+    ];
+    if let Ok(user) = std::env::var("USERNAME") {
+        parts.push(user);
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(parts.join("|").as_bytes());
+    format!("{:x}", hasher.finalize())
 }

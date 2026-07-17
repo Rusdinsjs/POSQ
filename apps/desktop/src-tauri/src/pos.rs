@@ -52,6 +52,26 @@ pub struct CheckoutPayload {
     pub card_details: Option<CardDetails>,
 }
 
+// D-2: Read a boolean system setting (DEC-041, PDEC-021).
+pub async fn read_setting_bool(pool: &SqlitePool, key: &str) -> Option<bool> {
+    let row = sqlx::query("SELECT value FROM system_settings WHERE key = ?")
+        .bind(key)
+        .fetch_optional(pool)
+        .await
+        .ok()?;
+    row.map(|r| r.get::<String, _>("value") == "true")
+}
+
+// D-2: Read a numeric system setting as f64.
+pub async fn read_setting_f64(pool: &SqlitePool, key: &str) -> Option<f64> {
+    let row = sqlx::query("SELECT value FROM system_settings WHERE key = ?")
+        .bind(key)
+        .fetch_optional(pool)
+        .await
+        .ok()?;
+    row.and_then(|r| r.get::<String, _>("value").parse::<f64>().ok())
+}
+
 #[tauri::command]
 pub async fn get_products(pool: State<'_, SqlitePool>) -> Result<Vec<ProductItem>, String> {
     // 1. Check network mode
@@ -129,6 +149,26 @@ pub async fn get_products(pool: State<'_, SqlitePool>) -> Result<Vec<ProductItem
 pub async fn checkout(payload: CheckoutPayload, pool: State<'_, SqlitePool>) -> Result<Uuid, String> {
     // M13 QA Hardening: Enforce license status to prevent API bypass
     crate::license::enforce_active_license().await?;
+
+    // I-4: Server-side arithmetic guard. Money is integer rupiah minor unit (i32).
+    // Reject obviously tampered totals before writing anything.
+    let computed = payload.subtotal
+        .checked_sub(payload.discount_total)
+        .and_then(|base| base.checked_add(payload.tax_total))
+        .and_then(|base| base.checked_add(payload.service_total));
+    match computed {
+        Some(expected_grand) if expected_grand == payload.grand_total => {}
+        _ => return Err("Total mismatch: subtotal - discount + tax + service must equal grand_total".into()),
+    }
+    if payload.paid_total.checked_sub(payload.change_total) != Some(payload.grand_total) {
+        return Err("Payment mismatch: paid_total - change_total must equal grand_total".into());
+    }
+    if payload.subtotal < 0 || payload.discount_total < 0 || payload.tax_total < 0
+        || payload.service_total < 0 || payload.grand_total < 0 || payload.paid_total < 0
+        || payload.change_total < 0
+    {
+        return Err("Negative monetary values are not allowed".into());
+    }
 
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
@@ -815,6 +855,10 @@ pub async fn save_hold_draft(id: String, name: String, cart_json: String, pool: 
                     let mut tax_total = 0;
                     let mut grand_total = 0;
 
+                    // D-2: Configurable tax (DEC-041, PDEC-021). Disabled by default.
+                    let tax_enabled = crate::pos::read_setting_bool(pool.inner(), "tax_enabled").await.unwrap_or(false);
+                    let tax_rate: f64 = crate::pos::read_setting_f64(pool.inner(), "tax_rate").await.unwrap_or(0.11);
+
                     if let Ok(full_payload) = serde_json::from_str::<FullDraftPayload>(&cart_json) {
                         for item in &full_payload.cart {
                             subtotal += (item.unit_price as f64 * item.qty) as i32 - item.discount_total;
@@ -831,7 +875,9 @@ pub async fn save_hold_draft(id: String, name: String, cart_json: String, pool: 
                         if discount_total > subtotal {
                             discount_total = subtotal;
                         }
-                        tax_total = ((subtotal - discount_total) as f64 * 0.11) as i32;
+                        if tax_enabled {
+                            tax_total = ((subtotal - discount_total) as f64 * tax_rate) as i32;
+                        }
                         grand_total = subtotal - discount_total + tax_total;
                     }
 

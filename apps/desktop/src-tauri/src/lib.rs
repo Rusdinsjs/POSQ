@@ -52,6 +52,12 @@ async fn db_health_check(pool: State<'_, SqlitePool>) -> Result<Value, String> {
 }
 
 #[tauri::command]
+async fn db_health_full(pool: State<'_, SqlitePool>) -> Result<Value, String> {
+    let (state, detail) = db::check_db_health(pool.inner()).await;
+    Ok(json!({ "state": state, "detail": detail }))
+}
+
+#[tauri::command]
 async fn create_dummy_order(pool: State<'_, SqlitePool>) -> Result<Value, String> {
     let merchant_id = Uuid::new_v4();
     let outlet_id = Uuid::new_v4();
@@ -141,6 +147,7 @@ pub fn run() {
             greet,
             health_check,
             db_health_check,
+            db_health_full,
             create_dummy_order,
             list_orders,
             ecr::start_ecr_transaction,

@@ -1,6 +1,11 @@
 -- =============================================================================
--- POSQ Server Database Initialization
+-- POSQ Control-Plane Server Database Initialization (PostgreSQL)
 -- =============================================================================
+-- NOTE (ADR-0013, 2026-07-17): This script provisions the CONTROL-PLANE server
+-- database ONLY (merchant accounts, devices, licenses, subscriptions, updates,
+-- backup metadata). It does NOT contain operational POS tables (orders, payments,
+-- inventory, stock movements). The local operational DB is SQLite per device.
+--
 -- This script runs when the PostgreSQL container starts for the first time
 
 -- Enable UUID extension

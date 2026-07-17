@@ -40,7 +40,18 @@ Example:
 202607050001_create_core_pos_tables.sql
 ```
 
-## 3. Local PostgreSQL Schema
+## 3. Local Operational DB Schema (SQLite)
+
+> Amended per ADR-0013 (2026-07-17): the MVP local operational database is **SQLite** (per-device file). PostgreSQL is used only by the control-plane server.
+
+SQLite type guidance:
+- UUIDs and IDs: `TEXT` (store as canonical UUID string).
+- Timestamps: `TEXT` ISO-8601 (`YYYY-MM-DD HH:MM:SS` or RFC3339).
+- Monetary values: `INTEGER` minor unit (sen/rupiah integer).
+- Quantities/stock: `REAL` (supports fractional units).
+- Status/enums: `TEXT`.
+- Booleans: `INTEGER` (0/1).
+- No `RETURNING`, `FOR UPDATE`, or native enum/role types. App enforces RBAC and locking in Rust.
 
 Local DB stores operational POS data.
 
@@ -48,26 +59,26 @@ Local DB stores operational POS data.
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| name | text | required |
-| tax_number | text | optional |
-| address | text | optional |
-| phone | text | optional |
-| created_at | timestamptz | required |
-| updated_at | timestamptz | required |
+| id | TEXT | primary key (UUID) |
+| name | TEXT | required |
+| tax_number | TEXT | optional |
+| address | TEXT | optional |
+| phone | TEXT | optional |
+| created_at | TEXT | required (ISO-8601) |
+| updated_at | TEXT | required (ISO-8601) |
 
 ### 3.2 outlets
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| merchant_id | uuid | fk merchants.id |
-| name | text | required |
-| code | text | required, unique per merchant |
-| address | text | optional |
-| timezone | text | default Asia/Jakarta |
-| created_at | timestamptz | required |
-| updated_at | timestamptz | required |
+| id | TEXT | primary key (UUID) |
+| merchant_id | TEXT | fk merchants.id |
+| name | TEXT | required |
+| code | TEXT | required, unique per merchant |
+| address | TEXT | optional |
+| timezone | TEXT | default Asia/Jakarta |
+| created_at | TEXT | required (ISO-8601) |
+| updated_at | TEXT | required (ISO-8601) |
 
 ### 3.3 users
 
@@ -75,16 +86,16 @@ Local app users.
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| merchant_id | uuid | fk |
-| outlet_id | uuid | nullable |
-| name | text | required |
-| email | text | optional |
-| pin_hash | text | optional |
-| password_hash | text | optional |
-| status | text | active/inactive |
-| created_at | timestamptz | required |
-| updated_at | timestamptz | required |
+| id | TEXT | primary key (UUID) |
+| merchant_id | TEXT | fk |
+| outlet_id | TEXT | nullable |
+| name | TEXT | required |
+| email | TEXT | optional |
+| pin_hash | TEXT | optional |
+| password_hash | TEXT | optional |
+| status | TEXT | active/inactive |
+| created_at | TEXT | required (ISO-8601) |
+| updated_at | TEXT | required (ISO-8601) |
 
 ### 3.4 roles
 
@@ -144,18 +155,18 @@ Unique:
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| merchant_id | uuid | fk |
-| category_id | uuid | nullable |
-| sku | text | required, unique per merchant |
-| barcode | text | optional |
-| name | text | required |
-| price | integer | rupiah |
-| cost | integer | optional |
-| track_stock | boolean | default true |
-| active | boolean | default true |
-| created_at | timestamptz | required |
-| updated_at | timestamptz | required |
+| id | TEXT | primary key (UUID) |
+| merchant_id | TEXT | fk |
+| category_id | TEXT | nullable |
+| sku | TEXT | required, unique per merchant |
+| barcode | TEXT | optional |
+| name | TEXT | required |
+| price | INTEGER | rupiah (minor unit) |
+| cost | INTEGER | optional (minor unit) |
+| track_stock | INTEGER | default 1 (0/1) |
+| active | INTEGER | default 1 (0/1) |
+| created_at | TEXT | required (ISO-8601) |
+| updated_at | TEXT | required (ISO-8601) |
 
 Indexes:
 
@@ -169,13 +180,13 @@ products(merchant_id, name)
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| merchant_id | uuid | fk |
-| outlet_id | uuid | fk |
-| product_id | uuid | fk products.id |
-| qty_on_hand | numeric(18,3) | required |
-| min_qty | numeric(18,3) | default 0 |
-| updated_at | timestamptz | required |
+| id | TEXT | primary key (UUID) |
+| merchant_id | TEXT | fk |
+| outlet_id | TEXT | fk |
+| product_id | TEXT | fk products.id |
+| qty_on_hand | REAL | required |
+| min_qty | REAL | default 0 |
+| updated_at | TEXT | required (ISO-8601) |
 
 Unique:
 
@@ -187,17 +198,17 @@ Unique:
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| merchant_id | uuid | fk |
-| outlet_id | uuid | fk |
-| product_id | uuid | fk |
-| movement_type | text | sale, refund, stock_in, adjustment, transfer_out, transfer_in, opname |
-| qty_delta | numeric(18,3) | positive/negative |
-| reason | text | required for adjustment |
-| reference_type | text | order, refund, transfer, opname, manual |
-| reference_id | uuid | nullable |
-| created_by | uuid | user id |
-| created_at | timestamptz | required |
+| id | TEXT | primary key (UUID) |
+| merchant_id | TEXT | fk |
+| outlet_id | TEXT | fk |
+| product_id | TEXT | fk |
+| movement_type | TEXT | sale, refund, stock_in, adjustment, transfer_out, transfer_in, opname |
+| qty_delta | REAL | positive/negative |
+| reason | TEXT | required for adjustment |
+| reference_type | TEXT | order, refund, transfer, opname, manual |
+| reference_id | TEXT | nullable |
+| created_by | TEXT | user id |
+| created_at | TEXT | required (ISO-8601) |
 
 Indexes:
 
@@ -210,17 +221,17 @@ stock_movements(reference_type, reference_id)
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| merchant_id | uuid | fk |
-| outlet_id | uuid | fk |
-| opened_by | uuid | user id |
-| closed_by | uuid | nullable |
-| status | text | open/closed |
-| starting_cash | integer | rupiah |
-| expected_cash | integer | nullable |
-| counted_cash | integer | nullable |
-| opened_at | timestamptz | required |
-| closed_at | timestamptz | nullable |
+| id | TEXT | primary key (UUID) |
+| merchant_id | TEXT | fk |
+| outlet_id | TEXT | fk |
+| opened_by | TEXT | user id |
+| closed_by | TEXT | nullable |
+| status | TEXT | open/closed |
+| starting_cash | INTEGER | rupiah (minor unit) |
+| expected_cash | INTEGER | nullable |
+| counted_cash | INTEGER | nullable |
+| opened_at | TEXT | required (ISO-8601) |
+| closed_at | TEXT | nullable (ISO-8601) |
 
 Constraint:
 
@@ -230,22 +241,22 @@ Constraint:
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| merchant_id | uuid | fk |
-| outlet_id | uuid | fk |
-| shift_id | uuid | fk shifts.id |
-| order_number | text | unique per outlet |
-| status | text | draft, held, paid, voided, refunded |
-| subtotal | integer | rupiah |
-| discount_total | integer | rupiah |
-| tax_total | integer | rupiah |
-| service_total | integer | rupiah |
-| grand_total | integer | rupiah |
-| paid_total | integer | rupiah |
-| change_total | integer | rupiah |
-| created_by | uuid | user id |
-| created_at | timestamptz | required |
-| updated_at | timestamptz | required |
+| id | TEXT | primary key (UUID) |
+| merchant_id | TEXT | fk |
+| outlet_id | TEXT | fk |
+| shift_id | TEXT | fk shifts.id |
+| order_number | TEXT | unique per outlet |
+| status | TEXT | draft, held, paid, voided, refunded |
+| subtotal | INTEGER | rupiah (minor unit) |
+| discount_total | INTEGER | rupiah (minor unit) |
+| tax_total | INTEGER | rupiah (minor unit) |
+| service_total | INTEGER | rupiah (minor unit) |
+| grand_total | INTEGER | rupiah (minor unit) |
+| paid_total | INTEGER | rupiah (minor unit) |
+| change_total | INTEGER | rupiah (minor unit) |
+| created_by | TEXT | user id |
+| created_at | TEXT | required (ISO-8601) |
+| updated_at | TEXT | required (ISO-8601) |
 
 Indexes:
 
@@ -259,58 +270,58 @@ orders(order_number)
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| order_id | uuid | fk orders.id |
-| product_id | uuid | nullable if custom item |
-| sku | text | snapshot |
-| name | text | snapshot |
-| qty | numeric(18,3) | required |
-| unit_price | integer | snapshot |
-| discount_total | integer | rupiah |
-| line_total | integer | rupiah |
-| notes | text | optional |
+| id | TEXT | primary key (UUID) |
+| order_id | TEXT | fk orders.id |
+| product_id | TEXT | nullable if custom item |
+| sku | TEXT | snapshot |
+| name | TEXT | snapshot |
+| qty | REAL | required |
+| unit_price | INTEGER | snapshot (minor unit) |
+| discount_total | INTEGER | rupiah (minor unit) |
+| line_total | INTEGER | rupiah (minor unit) |
+| notes | TEXT | optional |
 
 ### 3.15 payments
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| merchant_id | uuid | fk |
-| outlet_id | uuid | fk |
-| order_id | uuid | fk orders.id |
-| method | text | cash, qris_manual, debit, transfer, other |
-| status | text | pending, paid, failed, refunded |
-| amount | integer | rupiah |
-| reference | text | optional |
-| paid_at | timestamptz | nullable |
-| created_at | timestamptz | required |
+| id | TEXT | primary key (UUID) |
+| merchant_id | TEXT | fk |
+| outlet_id | TEXT | fk |
+| order_id | TEXT | fk orders.id |
+| method | TEXT | cash, qris_manual, debit, transfer, other |
+| status | TEXT | pending, paid, failed, refunded |
+| amount | INTEGER | rupiah (minor unit) |
+| reference | TEXT | optional |
+| paid_at | TEXT | nullable (ISO-8601) |
+| created_at | TEXT | required (ISO-8601) |
 
 ### 3.16 refunds
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| order_id | uuid | fk |
-| amount | integer | rupiah |
-| reason | text | required |
-| approved_by | uuid | user id |
-| created_by | uuid | user id |
-| created_at | timestamptz | required |
+| id | TEXT | primary key (UUID) |
+| order_id | TEXT | fk |
+| amount | INTEGER | rupiah (minor unit) |
+| reason | TEXT | required |
+| approved_by | TEXT | user id |
+| created_by | TEXT | user id |
+| created_at | TEXT | required (ISO-8601) |
 
 ### 3.17 audit_logs
 
 | Column | Type | Notes |
 |---|---|---|
-| id | uuid | primary key |
-| merchant_id | uuid | fk |
-| outlet_id | uuid | nullable |
-| actor_user_id | uuid | nullable |
-| action | text | required |
-| target_type | text | required |
-| target_id | uuid | nullable |
-| reason | text | optional |
-| metadata_json | jsonb | redacted metadata |
-| created_at | timestamptz | required |
+| id | TEXT | primary key (UUID) |
+| merchant_id | TEXT | fk |
+| outlet_id | TEXT | nullable |
+| actor_user_id | TEXT | nullable |
+| action | TEXT | required |
+| target_type | TEXT | required |
+| target_id | TEXT | nullable |
+| reason | TEXT | optional |
+| metadata_json | TEXT | redacted metadata (JSON) |
+| created_at | TEXT | required (ISO-8601) |
 
 Rules:
 

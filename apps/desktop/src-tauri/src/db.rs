@@ -1,6 +1,22 @@
 use sqlx::sqlite::{SqlitePoolOptions, SqliteConnectOptions};
 use sqlx::SqlitePool;
 use std::str::FromStr;
+use std::path::PathBuf;
+
+/// Resolve the on-disk SQLite file path used by the local operational DB.
+/// Mirrors the resolution in `establish_connection` so backup/restore can target the same file.
+pub fn database_file_path() -> PathBuf {
+    if let Ok(url) = std::env::var("DATABASE_URL") {
+        if let Some(path) = url.strip_prefix("sqlite://") {
+            return PathBuf::from(path);
+        }
+    }
+    let mut path = dirs::data_dir().expect("Could not find local app data directory");
+    path.push("POSQ");
+    std::fs::create_dir_all(&path).ok();
+    path.push("posq.db");
+    path
+}
 
 pub async fn establish_connection() -> Result<SqlitePool, String> {
     // Determine the database URL. Check environment first, otherwise fall back to local file.
@@ -28,6 +44,100 @@ pub async fn establish_connection() -> Result<SqlitePool, String> {
         .map_err(|e| format!("Failed to connect to SQLite: {}", e))?;
 
     Ok(pool)
+}
+
+/// I-7: Local SQLite health check (LOCAL_POSTGRESQL_STRATEGY §8).
+/// Verifies connectivity, required tables, schema marker, and free disk space.
+/// Returns (state, detail) where state is one of OK / WARNING / ACTION_REQUIRED / BLOCKED.
+pub async fn check_db_health(pool: &SqlitePool) -> (String, String) {
+    // 1. Connectivity
+    if sqlx::query("SELECT 1").execute(pool).await.is_err() {
+        return ("BLOCKED".to_string(), "Cannot connect to local database".to_string());
+    }
+
+    // 2. Required operational tables
+    let required = [
+        "users", "roles", "products", "inventory_items", "orders",
+        "order_items", "payments", "shifts", "audit_logs", "system_settings",
+    ];
+    let mut missing = Vec::new();
+    for t in required {
+        let exists: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?"
+        )
+        .bind(t)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+        if exists == 0 {
+            missing.push(t);
+        }
+    }
+    if !missing.is_empty() {
+        return (
+            "ACTION_REQUIRED".to_string(),
+            format!("Missing required tables: {}", missing.join(", ")),
+        );
+    }
+
+    // 3. Migration marker present
+    let migrated: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='_sqlx_migrations'"
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or(0);
+    if migrated == 0 {
+        return (
+            "WARNING".to_string(),
+            "Schema migration table not found; schema version unknown".to_string(),
+        );
+    }
+
+    // 4. Disk space on the volume holding the DB file.
+    // Best-effort: if we cannot determine free space, do not fail the health check.
+    let path = database_file_path();
+    if let Some(parent) = path.parent() {
+        if let Ok(avail) = free_space_bytes(parent) {
+            if avail < 50 * 1024 * 1024 {
+                return (
+                    "WARNING".to_string(),
+                    format!("Low disk space: {} MB free", avail / (1024 * 1024)),
+                );
+            }
+        }
+    }
+
+    ("OK".to_string(), "Local database is healthy".to_string())
+}
+
+/// Best-effort free disk space in bytes for the volume containing `path`.
+/// Uses `GetDiskFreeSpaceExW` on Windows, and a safe fallback elsewhere.
+#[cfg(target_os = "windows")]
+fn free_space_bytes(path: &std::path::Path) -> Result<u64, std::io::Error> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr;
+    use winapi::um::fileapi::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut free: u64 = 0;
+    unsafe {
+        if GetDiskFreeSpaceExW(
+            wide.as_ptr(),
+            &mut free as *mut u64 as *mut _,
+            ptr::null_mut(),
+            ptr::null_mut(),
+        ) == 0
+        {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(free)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn free_space_bytes(_path: &std::path::Path) -> Result<u64, std::io::Error> {
+    // Fallback: assume ample space; refine with a crate (e.g. sysinfo) cross-platform later.
+    Ok(1024 * 1024 * 1024)
 }
 
 pub fn get_numeric_as_f64(row: &sqlx::sqlite::SqliteRow, column: &str) -> f64 {

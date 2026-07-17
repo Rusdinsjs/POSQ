@@ -1,29 +1,41 @@
-# LOCAL POSTGRESQL STRATEGY
+# LOCAL OPERATIONAL DB STRATEGY (SQLite)
 
 Project: Aplikasi POS SaaS Indonesia - Tauri Local Online  
-Purpose: Menentukan strategi deployment PostgreSQL lokal untuk MVP, beta, dan fase multi-terminal.
+Purpose: Menentukan strategi database operasional lokal untuk MVP, beta, dan fase multi-terminal.
+
+> **Amended 2026-07-17 (ADR-0013):** The MVP local operational DB is **SQLite** (one file per
+> device), not PostgreSQL. The Postgres-required language below has been revised. PostgreSQL remains
+> only the control-plane server database.
 
 ## 1. Decision Summary
 
-MVP menggunakan PostgreSQL lokal per device.
+MVP menggunakan SQLite lokal per device (satu file `posq.db` per mesin, WAL mode).
 
 Artinya:
 
-- Setiap komputer POS memiliki database PostgreSQL lokal sendiri.
+- Setiap komputer POS memiliki database SQLite lokal sendiri (`%LOCALAPPDATA%/POSQ/posq.db`).
 - Checkout, shift, inventory, report, audit, license cache, dan backup berjalan dari database lokal tersebut.
 - Server tetap control plane, bukan database transaksi.
 - Multi-terminal dengan satu database outlet ditunda sampai fondasi single-device stabil.
 
-## 2. Why Per-Device for MVP
+## 2. Why Per-Device SQLite for MVP
 
 Alasan:
 
-- Instalasi lebih sederhana.
-- Risiko concurrency multi-terminal lebih rendah.
+- Instalasi nol-friction: tidak perlu install/setup PostgreSQL di Windows UMKM.
+- Risiko concurrency multi-terminal lebih rendah (single-writer WAL cocok untuk kasir tunggal).
 - Checkout offline lebih mudah dijamin.
-- Migration dan backup lebih mudah diuji.
+- Migration dan backup lebih mudah diuji (`VACUUM INTO` + file copy).
 - Cocok untuk target awal UMKM dan kasir tunggal.
 - Mengurangi scope sebelum core POS stabil.
+
+Catatan tradeoff (ADR-0013):
+
+- SQLite adalah single-writer. Tidak cocok untuk beberapa kasir menulis stok real-time bersamaan
+  tanpa desain tambahan (ditunda ke multi-terminal ADR).
+- Tidak ada `RETURNING`, `FOR UPDATE`, enum, atau role-DB. Gunakan `INTEGER`/`TEXT`/`REAL`,
+  `text` status, dan `ON CONFLICT` SQLite.
+- Backup pakai `VACUUM INTO` + file copy, dienkripsi AES-256-GCM client-side.
 
 Tradeoff:
 
@@ -35,7 +47,7 @@ Tradeoff:
 
 | Phase | Mode | Status | Notes |
 |---|---|---|---|
-| MVP | PostgreSQL per device | Required | Single cashier/device |
+| MVP | SQLite per device | Required | Single cashier/device, WAL mode |
 | Beta | Optional outlet local server | Planned | Butuh ADR multi-terminal |
 | Business | Outlet local server + multiple terminals | Future | Butuh LAN discovery, locking, backup central |
 | Enterprise | Outlet local server + optional cloud operational sync | Future | Butuh ADR cloud operational sync |
@@ -45,7 +57,7 @@ Tradeoff:
 ```text
 Tauri Desktop App
   -> Rust local service
-  -> PostgreSQL local on same machine
+  -> SQLite local on same machine (posq.db, WAL)
   -> Control plane API for license/subscription/update/backup metadata
   -> Object storage optional for encrypted backup
 ```
@@ -58,64 +70,53 @@ Rules:
 - License state is cached locally.
 - Server does not store orders/payments/inventory.
 
-## 5. Local PostgreSQL Installation Options
+## 5. Local SQLite Operational File
 
-Antigravity may implement one of these for MVP:
+The local operational DB is a single SQLite file managed by the app:
 
-| Option | Recommendation | Notes |
-|---|---|---|
-| Installer bundles PostgreSQL setup | Preferred for production | Better UX, more installer work |
-| App detects existing PostgreSQL | Required fallback | Useful for technical users |
-| App starts embedded/portable PostgreSQL | Optional research | Must still be PostgreSQL, not SQLite |
-| Manual setup only | Acceptable for PoC | Not acceptable for production UX |
+- Default path: `%LOCALAPPDATA%/POSQ/posq.db` (Windows), equivalent per-OS data dir via `dirs::data_dir`.
+- Journal mode: WAL (`journal_mode=WAL`), synchronous=Normal, busy_timeout=5000ms (see `db.rs`).
+- Created automatically with `create_if_missing(true)` on first launch.
+- No separate DB user concept: the app process owns the file; protect with OS file permissions.
+
+Backup/restore uses `VACUUM INTO '<backup>.db'` for an atomic snapshot, then AES-256-GCM encryption
+of the snapshot file when a recovery key is supplied (see `backup.rs`). There is no `pg_dump`/`psql`
+dependency.
 
 MVP recommendation:
 
-1. PoC: manual PostgreSQL or existing local PostgreSQL.
-2. MVP installer: guided PostgreSQL setup/check.
-3. Production: installer-managed PostgreSQL with repair flow.
+1. File is created and migrated automatically on first launch.
+2. Installer must NOT delete the existing `posq.db` on reinstall/upgrade (reinstall preserves data).
+3. Production: installer provides a repair/reset flow that first takes a backup before any destructive action.
 
 ## 6. Database Users
 
-Ideal production model:
-
-| DB User | Purpose |
-|---|---|
-| migration user | Runs migrations |
-| runtime user | Normal app operations |
-| backup user | Backup/export if separated |
-
-MVP acceptable simplification:
-
-- One app-specific DB user.
-- Must not use PostgreSQL superuser for app runtime.
-- Must not log DB credentials.
-
-Open decision:
-
-- Whether MVP uses one app DB user or separate migration/runtime users.
+Not applicable to SQLite (single file owned by the app process). Operational DB has no role/DB-user
+model. Access control is enforced in Rust (RBAC via `security_policy.rs` + `auth::has_permission`),
+not at the DB layer. (If a future multi-terminal design adopts a server DB, revisit DB users per a
+new ADR.)
 
 ## 7. Connection Configuration
 
-Default local config:
+Default local config (resolved in `db.rs`):
 
 ```text
-host=localhost
-port=5432
-database=pos_local
-user=pos_app
-sslmode=disable
+DATABASE_URL=sqlite://%LOCALAPPDATA%/POSQ/posq.db   # or via dirs::data_dir
+journal_mode=WAL
+synchronous=Normal
+busy_timeout=5000ms
+max_connections=5
 ```
 
 Storage:
 
-- Store connection settings in app config.
-- Store password in OS secure storage if available.
-- Redact password in logs and diagnostics.
+- Override via `DATABASE_URL` environment variable if needed (e.g. portable/USB install).
+- No password to store for the local file.
+- Redact any path containing usernames in logs and diagnostics (SEC-003).
 
 ## 8. Health Check
 
-Local PostgreSQL health check must verify:
+Local SQLite health check (see `db.rs::check_db_health`) must verify:
 
 - Server reachable.
 - Database exists.
@@ -146,18 +147,18 @@ Rules:
 - Failed migration must not destroy current data.
 - App must show recovery instructions.
 
-Migration table:
+Migration table (managed by sqlx `migrate!`, SQLite):
 
 ```text
-schema_migrations(
+_schema_migrations(
   version text primary key,
-  name text not null,
-  applied_at timestamptz not null,
-  checksum text not null
+  description text not null,
+  installed_on text not null,
+  success boolean not null
 )
 ```
 
-## 10. Backup Strategy for Local PostgreSQL
+## 10. Backup Strategy for Local SQLite
 
 Backup required before:
 
@@ -168,13 +169,16 @@ Backup required before:
 
 Backup must include:
 
-- Database dump.
+- `VACUUM INTO` snapshot of `posq.db` (atomic).
 - App config manifest.
 - Schema version.
 - App version.
 - Device id.
 - Checksum.
 - Encryption metadata if encrypted.
+
+Implementation: see `backup.rs` (`create_local_backup`, `restore_local_backup`). The pre-restore
+safety backup is mandatory before overwriting the live DB.
 
 ## 11. Multi-Terminal Future
 
@@ -198,11 +202,10 @@ Until then:
 
 ## 12. Acceptance Criteria
 
-- MVP can run with local PostgreSQL per device.
-- App can detect unavailable PostgreSQL and show actionable error.
+- MVP can run with local SQLite per device.
+- App can detect unavailable SQLite and show actionable error.
 - App can run migration on fresh DB.
 - App can store dummy order locally.
-- App can backup local DB.
+- App can backup local DB (VACUUM INTO + AES-256-GCM).
 - Reinstall does not delete existing DB.
-- App runtime does not use PostgreSQL superuser.
 - Server schema does not store operational POS data by default.

@@ -95,6 +95,7 @@ dependencies = [
  "aes-gcm",
  "argon2",
  "axum",
+ "base64 0.22.1",
  "bigdecimal",
  "chrono",
  "csv",
@@ -116,6 +117,7 @@ dependencies = [
  "tokio",
  "tower-http 0.5.2",
  "uuid",
+ "winapi",
 ]
 
 [[package]]

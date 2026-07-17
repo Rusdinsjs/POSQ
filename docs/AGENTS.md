@@ -9,7 +9,7 @@ Build the POS as a local-first desktop application:
 - Desktop shell: Tauri v2.
 - Frontend: Svelte + TypeScript.
 - Local backend: Rust/Tauri commands.
-- Operational database: PostgreSQL local.
+- Operational database: SQLite local (per device; ADR-0013).
 - Server database: PostgreSQL control plane only.
 - Server scope: credential, merchant account, device activation, subscription, license, update metadata, backup metadata, admin audit.
 

@@ -1,9 +1,16 @@
 # STATUS
 
 Project: Aplikasi POS SaaS Indonesia - Tauri Local Online  
-Last updated: 2026-07-11  
-Current phase: Release Readiness  
-Current milestone: M14 - Packaging and Release Completed
+Last updated: 2026-07-17  
+Current phase: Implementation in progress — not pilot-ready  
+Current milestone: M14 - Packaging and Release (scaffold present; real integrations pending)
+
+> NOTE (2026-07-17): Status downgraded from "Release Readiness / M14 Completed".
+> Several milestone claims were optimistic: license activation/refresh and backup/restore
+> were implemented as client-side MOCKS that violate core security decisions
+> (DEC-029: no private key in desktop; ADR-0011; SECURITY_MODEL 4.1). Work to replace
+> mocks with real control-plane integrations is in progress. Local DB is SQLite per ADR-0013
+> (amended from the original PostgreSQL requirement).
 
 ## 1. Current Summary
 
@@ -55,23 +62,23 @@ Current source documents:
 
 ## 2. Milestone Progress
 
-| Milestone | Name | Status | Notes |
+| Milestone | Name | Code Status | Notes |
 | :--- | :--- | :--- | :--- |
-| M0 | Planning, Audit, and Architecture Lock | Completed | PRD, implementation plan, ADR, dan test plan siap |
-| M1 | Technical PoC | Completed | Integrasi Tauri/Svelte/Rust/PostgreSQL terbukti sukses |
-| M2 | Local Database Foundation | Completed | Skema, seed, dan backup-before-migration telah dibuat sesuai DATA_MODEL.md |
-| M3 | Core Checkout Local MVP | Completed | Svelte UI (Product, Cart, Receipt), Rust backend, stock validation terimplementasi |
-| M4 | Shift, RBAC, and Audit | Completed | Implementasi auth, close shift, refund, dan UI untuk role & audit |
-| M5 | Inventory MVP | Completed | Svelte UI inventory, low stock alert, stock movement recording, dan opname/adjustment terimplementasi |
-| M6 | Local Reporting | Completed | Report summary, product ranking, CSV export, dan RBAC report.view terintegrasi |
-| M7 | Control Plane API Foundation | Completed | Axum API scaffold, Auth/Sub stubs, pos_server DB tersendiri |
-| M8 | Backup and Metadata Sync Foundation | Completed | Local backup/restore (pg_dump), AES-256-GCM encryption, Svelte UI |
-| M9 | License and Subscription | Completed | Offline-first license parsing, Grace/Restricted mode layout guard |
-| M10 | App Update and Migration Safety | Completed | Safe migration (backup-before-migrate), version check, UI Update |
-| M11 | Hardware Abstraction | Completed | Printer mock, receipt preview UI, generic hardware command |
-| M12 | F&B and Retail Mode Basic | Completed | Kitchen Print UI/Logic, Retail Return Flow (Mocked) |
-| M13 | QA Hardening & Security Review | Completed | Static security review, license bypass fix, clock rollback fix, privacy fix |
-| M14 | Packaging and Release | Completed | Tauri Windows Installer (NSIS) terkonfigurasi, Release Checklist selesai |
+| M0 | Planning, Audit, and Architecture Lock | Completed | PRD, implementation plan, ADR (incl. ADR-0013 SQLite), dan test plan siap |
+| M1 | Technical PoC | Completed | Integrasi Tauri/Svelte/Rust/SQLite terbukti (catatan: SQLite, bukan PostgreSQL per ADR-0013) |
+| M2 | Local Database Foundation | Completed | Skema SQLite, seed, dan backup-before-migration sesuai DATA_MODEL.md (revisi SQLite) |
+| M3 | Core Checkout Local MVP | Real | Svelte UI + Rust backend + stock validation; txn atomic |
+| M4 | Shift, RBAC, and Audit | Real | Auth, close shift, refund, supervisor PIN, grants, audit log |
+| M5 | Inventory MVP | Real | UI inventory, low stock, stock movement, opname/adjustment |
+| M6 | Local Reporting | Real | Summary, ranking, CSV export, RBAC |
+| M7 | Control Plane API Foundation | Real (partial) | Axum API, auth/sub/devices/licenses/backups; signing key server-side |
+| M8 | Backup and Metadata Sync | Real | `VACUUM INTO` atomic snapshot + AES-256-GCM encryption (no pg_dump); pre-restore safety backup implemented; metadata upload to CP API with idempotency key |
+| M9 | License and Subscription | Real | `license.rs` calls CP API for activation/refresh; private key removed from desktop (DEC-029); desktop verifies Ed25519 JWT via public key; challenge-response wiring present (server challenge-response signature still simplified) |
+| M10 | App Update and Migration Safety | Real (partial) | Safe migration orchestrator ada; signing update perlu validasi terhadap update_signing_keys server |
+| M11 | Hardware Abstraction | Real (partial) | Printer mock + ESC/POS abstraction; receipt preview UI; perlu integration test printer nyata |
+| M12 | F&B and Retail Mode Basic | Real (partial) | Kitchen Print UI/Logic, Retail Return Flow (sebagian mocked) |
+| M13 | QA Hardening & Security Review | In progress | Clock rollback + license bypass fix dilakukan; butuh integration test & private-key-absence CI gate |
+| M14 | Packaging and Release | Scaffold | Tauri Windows Installer (NSIS) terkonfigurasi; release blocker: backup/license real, security gate |
 
 ## 3. Completed Artifacts
 
@@ -131,7 +138,7 @@ Current source documents:
 
 | Risk | Severity | Status | Mitigation |
 | :--- | :--- | :--- | :--- |
-| Local PostgreSQL installation may be difficult for users | High | Open | Build installer, health check, setup guide |
+| Local DB install friction (PostgreSQL previously) | Low | Mitigated | SQLite per-device file (ADR-0013); no PG install needed; installer must preserve posq.db on reinstall/upgrade |
 | Background jobs may duplicate backup/device/license metadata if idempotency is weak | High | Open | Idempotency key, retry tests, metadata uniqueness constraints |
 | Server scope may drift into storing all merchant operational data | Critical | Open | ADR-0008, DEC-019, server schema guardrails, test CP/BAK metadata-only cases |
 | Cloud backup misconfiguration may create false sense of safety | High | Open | Provider connection test, scheduled backup status, restore drill |
@@ -142,7 +149,7 @@ Current source documents:
 | Hard lock after expiry may create data hostage perception | High | Mitigated by policy | Restricted Expired Mode: block new operations, allow old data/export/backup/renewal |
 | User may bypass subscription by keeping app offline | High | Open | Short-lived signed token, heartbeat, lease expiry, anti-clock-rollback checks |
 | Local clock manipulation may extend license | High | Open | Store last_server_time, detect rollback, require online verification |
-| License signing key exposure would break monetization | Critical | Open | Private key server-side only, desktop stores public key only |
+| License signing key exposure would break monetization | Critical | Mitigated | Private key removed from desktop (DEC-029), server-side only. NOTE: `keys/` currently holds placeholder "temp keys" — generate real Ed25519 keypair and mount via LICENSE_SIGNING_KEY_PATH before pilot |
 | Migration may damage local data | Critical | Open | Backup before migration and migration log |
 | Scope may expand too early | High | Open | Follow MVP gates and ADR-0006 |
 | Hardware compatibility may vary | Medium | Open | Printer/barcode abstraction and adapter pattern |

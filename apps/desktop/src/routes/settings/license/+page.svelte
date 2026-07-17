@@ -7,6 +7,7 @@
     let token = $state<any>(null);
     let errorMsg = $state<string | null>(null);
     let activationName = $state("Kasir-Utama");
+    let merchantId = $state("");
 
     async function loadLicense() {
         errorMsg = null;
@@ -22,7 +23,7 @@
 
     async function activateDevice() {
         try {
-            const res: any = await invoke('activate_device', { deviceName: activationName });
+            const res: any = await invoke('activate_device', { merchantId: merchantId, deviceName: activationName });
             mode = res.mode;
             token = res.token;
             if (res.error) errorMsg = res.error;
@@ -104,6 +105,12 @@
                     <p class="text-sm text-slate-500 mb-4">Daftarkan kasir ini dengan nama perangkat unik untuk menghubungkannya ke control plane.</p>
                     
                     <div class="flex flex-col sm:flex-row gap-3">
+                        <input 
+                            type="text" 
+                            bind:value={merchantId} 
+                            placeholder="Merchant ID (from control plane)" 
+                            class="flex-1 bg-white border border-slate-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all font-medium text-slate-800"
+                        />
                         <input 
                             type="text" 
                             bind:value={activationName} 
