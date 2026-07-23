@@ -4,6 +4,8 @@
     import { page } from '$app/stores';
     import { goto } from '$app/navigation';
     import { refreshSession, logout, authState } from '$lib/auth.svelte';
+    import { capabilityStore } from '$lib/capabilities/capabilityStore.svelte';
+    import { getVisibleMenuItems } from '$lib/capabilities/menuResolver';
     import Toast from '$lib/components/Toast.svelte';
     import '../app.css';
 
@@ -95,33 +97,11 @@
 
                     <!-- Nav Links -->
                     <nav class="hidden lg:flex items-center gap-1">
-                        <a href="/" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname === '/' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
-                            🖥️ PoC
-                        </a>
-                        <a href="/pos" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname.startsWith('/pos') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
-                            🛒 POS
-                        </a>
-                        <a href="/kds" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname.startsWith('/kds') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
-                            🍳 KDS
-                        </a>
-                        <a href="/tables" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname.startsWith('/tables') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
-                            🍽️ Meja F&B
-                        </a>
-                        <a href="/shift" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname.startsWith('/shift') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
-                            🔑 Shift
-                        </a>
-                        <a href="/inventory" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname.startsWith('/inventory') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
-                            🗃️ Inventaris
-                        </a>
-                        <a href="/reports" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname.startsWith('/reports') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
-                            📊 Laporan
-                        </a>
-                        <a href="/audit" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname.startsWith('/audit') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
-                            📋 Audit
-                        </a>
-                        <a href="/settings" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname === '/settings' || $page.url.pathname.startsWith('/settings/') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
-                            ⚙️ Pengaturan
-                        </a>
+                        {#each getVisibleMenuItems() as item}
+                            <a href={item.href} class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname === item.href || (item.href !== '/' && $page.url.pathname.startsWith(item.href)) ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
+                                {item.label}
+                            </a>
+                        {/each}
                         {#if authState.session?.roles.some(r => ['owner', 'manager'].includes(r))}
                             <a href="/settings/users" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-colors {$page.url.pathname.startsWith('/settings/users') ? 'bg-violet-50 text-violet-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'}">
                                 👥 Pengguna
@@ -173,39 +153,16 @@
                         role="presentation">
                     </div>
                     <div class="lg:hidden absolute top-16 left-0 right-0 z-50 bg-white border-b border-slate-200 shadow-xl p-4 flex flex-col gap-1.5 animate-in slide-in-from-top duration-200">
-                        <a href="/" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname === '/' ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
-                            <span class="text-base">🖥️</span> <span>PoC Dashboard</span>
-                        </a>
-                        <a href="/pos" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname.startsWith('/pos') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
-                            <span class="text-base">🛒</span> <span>Transaksi POS</span>
-                        </a>
-                        <a href="/kds" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname.startsWith('/kds') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
-                            <span class="text-base">🍳</span> <span>KDS (Dapur)</span>
-                        </a>
-                        <a href="/tables" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname.startsWith('/tables') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
-                            <span class="text-base">🍽️</span> <span>Meja F&B</span>
-                        </a>
-                        <a href="/shift" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname.startsWith('/shift') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
-                            <span class="text-base">🔑</span> <span>Shift</span>
-                        </a>
-                        <a href="/inventory" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname.startsWith('/inventory') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
-                            <span class="text-base">🗃️</span> <span>Inventaris</span>
-                        </a>
-                        <a href="/reports" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname.startsWith('/reports') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
-                            <span class="text-base">📊</span> <span>Laporan</span>
-                        </a>
-                        <a href="/audit" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname.startsWith('/audit') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
-                            <span class="text-base">📋</span> <span>Audit Logs</span>
-                        </a>
-                        <a href="/settings" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname === '/settings' || $page.url.pathname.startsWith('/settings/') ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
-                            <span class="text-base">⚙️</span> <span>Pengaturan</span>
-                        </a>
+                        {#each getVisibleMenuItems() as item}
+                            <a href={item.href} onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname === item.href || (item.href !== '/' && $page.url.pathname.startsWith(item.href)) ? 'bg-blue-50 text-blue-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
+                                <span>{item.label}</span>
+                            </a>
+                        {/each}
                         {#if authState.session?.roles.some(r => ['owner', 'manager'].includes(r))}
                             <a href="/settings/users" onclick={() => mobileMenuOpen = false} class="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-colors {$page.url.pathname.startsWith('/settings/users') ? 'bg-violet-50 text-violet-600' : 'text-slate-600 hover:text-slate-950 hover:bg-slate-50'} min-h-[48px]">
-                                <span class="text-base">👥</span> <span>Manajemen Pengguna</span>
+                                <span>👥</span> <span>Kelola Pengguna</span>
                             </a>
                         {/if}
-
                         {#if authState.session}
                             <div class="border-t border-slate-100 pt-4 mt-2 flex items-center justify-between px-4">
                                 <div class="flex flex-col">

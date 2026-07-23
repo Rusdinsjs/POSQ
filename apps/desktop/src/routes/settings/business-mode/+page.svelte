@@ -1,183 +1,143 @@
 <script lang="ts">
-    import { invoke } from '@tauri-apps/api/core';
     import { onMount } from 'svelte';
     import BackButton from '$lib/components/BackButton.svelte';
+    import { capabilityStore } from '$lib/capabilities/capabilityStore.svelte';
 
-    let currentMode = "fb"; // "retail" or "fb"
-    
-    onMount(() => {
-        currentMode = localStorage.getItem('businessMode') || 'fb';
+    let selectedPreset = $state('general_flexible');
+    let isProcessing = $state(false);
+    let successMessage = $state('');
+    let errorMessage = $state('');
+
+    onMount(async () => {
+        await capabilityStore.fetchAvailablePresets();
+        await capabilityStore.loadCapabilities('default_outlet');
+        selectedPreset = capabilityStore.activePreset;
     });
 
-    $: if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('businessMode', currentMode);
-    }
-
-    let testActionStatus = "";
-    let isProcessing = false;
-
-    // F&B Table mock
-    let tables: any[] = [];
-    
-    async function loadTables() {
-        if (tables.length === 0) {
-            try {
-                tables = await invoke('get_tables');
-            } catch (err) {
-                console.error(err);
-            }
-        }
-    }
-
-    $: if (currentMode === 'fb') {
-        loadTables();
-    }
-
-    async function testRetailReturn() {
+    async function handleSelectPreset(code: string) {
         isProcessing = true;
-        testActionStatus = "Memproses retur...";
+        successMessage = '';
+        errorMessage = '';
         try {
-            const res: any = await invoke('process_return', { 
-                orderId: "TRX-12345", 
-                reason: "Barang cacat", 
-                refundAmount: 50000 
-            });
-            testActionStatus = "SUKSES: " + res.message;
-        } catch (err) {
-            testActionStatus = "GAGAL: " + err;
+            await capabilityStore.changePreset('default_outlet', code);
+            selectedPreset = capabilityStore.activePreset;
+            successMessage = `Mode bisnis berhasil diubah ke preset "${code}". Navigasi aplikasi telah disesuaikan!`;
+        } catch (e: any) {
+            errorMessage = String(e);
         } finally {
             isProcessing = false;
         }
     }
 
-    async function testKitchenPrint() {
-        isProcessing = true;
-        testActionStatus = "Mencetak ke Dapur...";
-        try {
-            const data = {
-                table_no: "Meja 4",
-                order_no: "KOT-999",
-                time: new Date().toLocaleTimeString(),
-                items: [
-                    { name: "Nasi Goreng Spesial", qty: 2, notes: "Pedas, jangan pakai acar" },
-                    { name: "Es Teh Manis", qty: 2, notes: null }
-                ]
-            };
-            await invoke('print_kitchen_ticket', { data });
-            testActionStatus = "SUKSES: Tiket Dapur berhasil dicetak (Lihat konsol)";
-        } catch (err) {
-            testActionStatus = "GAGAL: " + err;
-        } finally {
-            isProcessing = false;
+    function getPresetIcon(code: string) {
+        switch (code) {
+            case 'general_flexible': return '⚡';
+            case 'retail_standard': return '🛍️';
+            case 'retail_serialized': return '📱';
+            case 'fnb_quick_service': return '☕';
+            case 'fnb_table_service': return '🍔';
+            case 'nonprofit_donation': return '💚';
+            case 'cooperative_member_store': return '🏢';
+            case 'public_service_fee': return '🏛️';
+            case 'internal_issue': return '📦';
+            case 'school_campus': return '🏫';
+            case 'parking': return '🚗';
+            case 'fuel_energy': return '⛽';
+            default: return '🏬';
         }
     }
 </script>
 
-<div class="p-8 max-w-4xl mx-auto">
+<div class="p-8 max-w-6xl mx-auto space-y-6">
     <BackButton />
-    <h1 class="text-3xl font-bold mb-6">Mode Bisnis</h1>
-    <p class="text-gray-600 mb-8">Ubah perilaku dan tata letak aplikasi kasir Anda sesuai dengan spesifikasi bisnis. Pilihan ini akan mengaktifkan modul khusus seperti Pengaturan Meja (F&B), Retur Penjualan (Retail), atau Penugasan Teknisi (Usaha Jasa).</p>
 
-    <!-- Mode Toggle -->
-    <div class="bg-white shadow rounded-lg p-6 mb-8 border border-gray-200">
-        <h2 class="text-xl font-bold mb-4">Pilih Tipe Toko Anda</h2>
-        
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <!-- Retail Card -->
-            <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <!-- svelte-ignore a11y-no-static-element-interactions -->
-            <div class="border-2 rounded-lg p-6 cursor-pointer transition-all {currentMode === 'retail' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-blue-300'}"
-                 on:click={() => currentMode = 'retail'}>
-                <div class="flex items-center justify-between mb-2">
-                    <h3 class="font-bold text-lg text-blue-900">🛍️ Toko Retail</h3>
-                    {#if currentMode === 'retail'}
-                        <span class="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">Aktif</span>
-                    {/if}
-                </div>
-                <p class="text-sm text-gray-600">Cocok untuk toko kelontong, minimarket, butik, dan elektronik. Mendukung manajemen stok ketat dan retur barang.</p>
-            </div>
-
-            <!-- F&B Card -->
-            <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <!-- svelte-ignore a11y-no-static-element-interactions -->
-            <div class="border-2 rounded-lg p-6 cursor-pointer transition-all {currentMode === 'fb' ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-orange-300'}"
-                 on:click={() => currentMode = 'fb'}>
-                <div class="flex items-center justify-between mb-2">
-                    <h3 class="font-bold text-lg text-orange-900">🍔 Food & Beverage</h3>
-                    {#if currentMode === 'fb'}
-                        <span class="bg-orange-500 text-white text-xs px-2 py-1 rounded-full">Aktif</span>
-                    {/if}
-                </div>
-                <p class="text-sm text-gray-600">Sempurna untuk kafe, restoran, dan kedai. Mendukung pesanan per meja, varian rasa, dan cetak tiket dapur (Kitchen Print).</p>
-            </div>
-
-            <!-- Jasa Card -->
-            <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <!-- svelte-ignore a11y-no-static-element-interactions -->
-            <div class="border-2 rounded-lg p-6 cursor-pointer transition-all {currentMode === 'jasa' ? 'border-purple-500 bg-purple-50' : 'border-gray-200 hover:border-purple-300'}"
-                 on:click={() => currentMode = 'jasa'}>
-                <div class="flex items-center justify-between mb-2">
-                    <h3 class="font-bold text-lg text-purple-900">✂️ Usaha Jasa</h3>
-                    {#if currentMode === 'jasa'}
-                        <span class="bg-purple-500 text-white text-xs px-2 py-1 rounded-full">Aktif</span>
-                    {/if}
-                </div>
-                <p class="text-sm text-gray-600">Ideal untuk salon, bengkel, klinik, dan barbershop. Mendukung input nama teknisi/terapis per transaksi.</p>
-            </div>
+    <div class="flex items-center justify-between bg-slate-800 p-6 rounded-2xl border border-slate-700 text-white shadow-xl">
+        <div>
+            <h1 class="text-3xl font-black tracking-tight flex items-center gap-3">
+                <span>🏬</span> Pengaturan DNA Mode Bisnis
+            </h1>
+            <p class="text-sm text-slate-400 mt-1">
+                Pilih preset DNA bisnis outlet Anda. Sistem akan menyesuaikan kapabilitas backend, alur kasir, dan bilah navigasi secara otomatis.
+            </p>
         </div>
+        {#if capabilityStore.isLoading}
+            <span class="px-4 py-2 bg-indigo-500/20 text-indigo-400 font-bold rounded-xl text-xs flex items-center gap-2 border border-indigo-500/30">
+                <span>⏳</span> Memuat Kapabilitas...
+            </span>
+        {/if}
     </div>
 
-    <!-- Playground Area -->
-    <div class="bg-white shadow rounded-lg p-6 border border-gray-200">
-        <h2 class="text-xl font-bold mb-4 border-b pb-2">Arena Simulasi ({currentMode === 'retail' ? 'Retail' : currentMode === 'fb' ? 'F&B' : 'Jasa'})</h2>
-        
-        {#if currentMode === 'retail'}
-            <div class="mb-4">
-                <p class="text-sm text-gray-600 mb-4">Dalam mode Retail, fitur <strong>Retur Transaksi</strong> tersedia untuk pelanggan yang mengembalikan barang cacat.</p>
-                <button 
-                    on:click={testRetailReturn}
-                    disabled={isProcessing}
-                    class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded shadow transition">
-                    Simulasikan Retur (Process Return)
-                </button>
-            </div>
-        {:else if currentMode === 'fb'}
-            <div class="mb-4">
-                <p class="text-sm text-gray-600 mb-4">Dalam mode F&B, sistem secara bawaan melacak nomor meja dan menyortir struk khusus untuk dapur.</p>
-                
-                <div class="flex gap-2 mb-6 flex-wrap">
-                    {#each tables.slice(0, 5) as table}
-                        <div class="px-4 py-2 text-sm rounded border {table.is_occupied ? 'bg-red-100 border-red-300 text-red-800' : 'bg-green-100 border-green-300 text-green-800'}">
-                            {table.name}
+    {#if successMessage}
+        <div class="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-sm font-semibold flex items-center justify-between">
+            <span>✅ {successMessage}</span>
+            <button class="text-xs underline hover:text-white" onclick={() => successMessage = ''}>Tutup</button>
+        </div>
+    {/if}
+
+    {#if errorMessage}
+        <div class="p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-sm font-semibold flex items-center justify-between">
+            <span>⚠️ {errorMessage}</span>
+            <button class="text-xs underline hover:text-white" onclick={() => errorMessage = ''}>Tutup</button>
+        </div>
+    {/if}
+
+    <!-- Grid Preset DNA Bisnis -->
+    <div class="space-y-4">
+        <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <span>🧬</span> Daftar Preset DNA Bisnis Terdaftar
+        </h2>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {#each capabilityStore.availablePresets as preset}
+                {@const isActive = capabilityStore.activePreset === preset.code}
+                <div 
+                    class="bg-white rounded-2xl p-6 border-2 shadow-sm hover:shadow-md cursor-pointer transition-all flex flex-col justify-between space-y-4 relative overflow-hidden {isActive ? 'border-indigo-600 ring-2 ring-indigo-500/20 bg-indigo-50/20' : 'border-slate-200 hover:border-indigo-300'}"
+                    onclick={() => handleSelectPreset(preset.code)}
+                >
+                    {#if isActive}
+                        <div class="absolute top-0 right-0 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-bl-xl shadow">
+                            Preset Aktif
                         </div>
-                    {/each}
-                    <div class="px-4 py-2 text-sm text-gray-500 italic">... dan {tables.length - 5} meja lainnya</div>
-                </div>
+                    {/if}
 
-                <button 
-                    on:click={testKitchenPrint}
-                    disabled={isProcessing}
-                    class="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-6 rounded shadow transition">
-                    Cetak Tiket Dapur Mock (Kitchen Print)
-                </button>
-            </div>
-        {:else}
-            <div class="mb-4">
-                <p class="text-sm text-gray-600 mb-4">Dalam mode Usaha Jasa, sistem berfokus pada nama layanan dan teknisi/terapis yang mengerjakannya.</p>
-                <div class="p-4 border rounded bg-slate-50 flex items-center gap-4">
-                    <span class="text-sm font-bold text-slate-700">Pilih Teknisi:</span>
-                    <select class="p-2 border rounded text-sm w-48">
-                        <option>Budi (Mekanik Senior)</option>
-                        <option>Andi (Mekanik Junior)</option>
-                    </select>
-                </div>
-            </div>
-        {/if}
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-3">
+                            <span class="text-3xl p-2 bg-slate-100 rounded-xl">{getPresetIcon(preset.code)}</span>
+                            <div>
+                                <h3 class="font-bold text-lg text-slate-900 leading-tight">{preset.name}</h3>
+                                <span class="text-[11px] font-mono text-slate-400 block mt-0.5">{preset.code}</span>
+                            </div>
+                        </div>
 
-        {#if testActionStatus}
-            <div class="mt-6 p-4 rounded text-sm font-mono {testActionStatus.startsWith('GAGAL') ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}">
-                {testActionStatus}
-            </div>
-        {/if}
+                        <p class="text-xs text-slate-600 leading-relaxed">
+                            {preset.description}
+                        </p>
+                    </div>
+
+                    <!-- Kapabilitas Bawaan -->
+                    <div class="border-t border-slate-100 pt-3 space-y-2">
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Kapabilitas Bawaan:</span>
+                        <div class="flex flex-wrap gap-1">
+                            {#each preset.default_capabilities as cap}
+                                <span class="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-mono border border-slate-200">
+                                    {cap}
+                                </span>
+                            {/each}
+                        </div>
+                    </div>
+
+                    <button 
+                        class="w-full py-2.5 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 {isActive ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-600'}"
+                        disabled={isProcessing}
+                    >
+                        {#if isActive}
+                            <span>✓</span> Digunakan Saat Ini
+                        {:else}
+                            <span>👉</span> Aktifkan Preset Ini
+                        {/if}
+                    </button>
+                </div>
+            {/each}
+        </div>
     </div>
 </div>

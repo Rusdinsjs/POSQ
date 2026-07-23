@@ -390,7 +390,7 @@ pub async fn checkout(payload: CheckoutPayload, pool: State<'_, SqlitePool>) -> 
     // Audit Log
     crate::audit::log_action(
         &mut *tx, 
-        merchant_id, 
+        merchant_id.clone(), 
         Some(outlet_id.clone()), 
         user_id.clone(), 
         "checkout", 
@@ -570,6 +570,29 @@ pub async fn checkout(payload: CheckoutPayload, pool: State<'_, SqlitePool>) -> 
             }
         }
     }
+
+    // Transactional Outbox Event Write
+    let outbox_payload = serde_json::json!({
+        "order_id": order_id.to_string(),
+        "order_number": order_number,
+        "grand_total": payload.grand_total,
+        "paid_total": payload.paid_total,
+        "payment_method": payload.payment_method,
+        "order_type": payload.order_type,
+        "table_number": payload.table_number,
+    });
+    let _ = crate::sync_engine::enqueue_outbox_event_tx(
+        &mut tx,
+        "ORDER_CREATED",
+        "order",
+        &order_id.to_string(),
+        1,
+        &merchant_id,
+        &outlet_id,
+        "desktop_device",
+        Some(&user_id),
+        &outbox_payload.to_string(),
+    ).await;
 
     tx.commit().await.map_err(|e| e.to_string())?;
 

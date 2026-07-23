@@ -1,7 +1,7 @@
 use tauri::command;
 use std::fs;
 use std::path::PathBuf;
-use sqlx::SqlitePool;
+use sqlx::{SqlitePool, Row};
 use tauri::State;
 use aes_gcm::{
     aead::{Aead, KeyInit},
@@ -99,6 +99,31 @@ pub async fn restore_local_backup(
         db_data = decrypt_data(&db_data, &key_hex)?;
     }
 
+    // Verify SQLite format and run PRAGMA integrity_check on candidate data
+    let temp_candidate = std::env::temp_dir().join(format!("posq_restore_verify_{}.db", uuid::Uuid::new_v4()));
+    fs::write(&temp_candidate, &db_data).map_err(|e| format!("Failed to write temporary restore candidate: {}", e))?;
+
+    let check_res = match SqlitePool::connect(&format!("sqlite://{}", temp_candidate.to_string_lossy())).await {
+        Ok(pool) => {
+            let row = sqlx::query("PRAGMA integrity_check")
+                .fetch_one(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
+            let res: String = row.get(0);
+            pool.close().await;
+            let _ = fs::remove_file(&temp_candidate);
+            res
+        }
+        Err(e) => {
+            let _ = fs::remove_file(&temp_candidate);
+            return Err(format!("CORRUPT_BACKUP: Candidate database cannot be opened: {}", e));
+        }
+    };
+
+    if check_res != "ok" {
+        return Err(format!("CORRUPT_BACKUP: Integrity check failed: {}", check_res));
+    }
+
     // SAFETY: take a pre-restore backup of the live DB before overwriting it.
     let live_path = crate::db::database_file_path();
     if live_path.exists() {
@@ -114,12 +139,11 @@ pub async fn restore_local_backup(
     }
 
     // Write the restored DB on top of the live file.
-    // Close any existing connections by replacing the file directly.
     fs::write(&live_path, db_data).map_err(|e| e.to_string())?;
 
     Ok(BackupResult {
         success: true,
-        message: "Restore completed successfully".into(),
+        message: "Restore completed successfully with verified integrity".into(),
         path: None,
     })
 }

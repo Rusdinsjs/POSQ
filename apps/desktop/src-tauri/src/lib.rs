@@ -1,3 +1,7 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+
 use serde_json::{json, Value};
 use sqlx::{SqlitePool, Row};
 use tauri::{State, Manager};
@@ -29,6 +33,17 @@ mod security_policy;
 mod cash_ledger;
 mod fraud_detection;
 mod users;
+mod capabilities;
+mod sync_engine;
+mod serialized_inventory;
+mod table_service;
+mod appointments;
+mod repair;
+mod grocery_wholesale;
+mod rental_membership;
+mod consignment_voucher;
+mod noncommercial_modes;
+mod hardware_packs;
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -243,7 +258,30 @@ pub fn run() {
             users::unlock_user,
             users::assign_user_role,
             users::revoke_user_role,
-            users::list_roles
+            users::list_roles,
+            capabilities::get_effective_capabilities_cmd,
+            capabilities::get_available_presets_cmd,
+            capabilities::set_outlet_preset_cmd,
+            capabilities::toggle_outlet_capability_cmd,
+            sync_engine::get_sync_status_cmd,
+            serialized_inventory::register_serial_unit_cmd,
+            serialized_inventory::list_available_serials_cmd,
+            table_service::update_session_state_cmd,
+            appointments::create_appointment_cmd,
+            appointments::list_appointments_cmd,
+            repair::create_repair_ticket_cmd,
+            repair::list_repair_tickets_cmd,
+            grocery_wholesale::parse_scale_barcode_cmd,
+            grocery_wholesale::register_inventory_lot_cmd,
+            rental_membership::checkout_rental_asset_cmd,
+            rental_membership::return_rental_asset_cmd,
+            consignment_voucher::mask_voucher_pin_cmd,
+            consignment_voucher::calculate_consignor_settlement_cmd,
+            noncommercial_modes::record_donation_cmd,
+            noncommercial_modes::issue_internal_inventory_cmd,
+            hardware_packs::issue_parking_ticket_cmd,
+            hardware_packs::process_parking_exit_cmd,
+            hardware_packs::record_fuel_pump_reading_cmd
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

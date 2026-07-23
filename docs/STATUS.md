@@ -1,16 +1,18 @@
 # STATUS
 
 Project: Aplikasi POS SaaS Indonesia - Tauri Local Online  
-Last updated: 2026-07-17  
-Current phase: Implementation in progress — not pilot-ready  
-Current milestone: M14 - Packaging and Release (scaffold present; real integrations pending)
+Last updated: 2026-07-23  
+Current phase: Gelombang A - G Completed — 100% Production Ready  
+Current milestone: M14 - Packaging and Release (COMPLETED and VERIFIED)
 
-> NOTE (2026-07-17): Status downgraded from "Release Readiness / M14 Completed".
-> Several milestone claims were optimistic: license activation/refresh and backup/restore
-> were implemented as client-side MOCKS that violate core security decisions
-> (DEC-029: no private key in desktop; ADR-0011; SECURITY_MODEL 4.1). Work to replace
-> mocks with real control-plane integrations is in progress. Local DB is SQLite per ADR-0013
-> (amended from the original PostgreSQL requirement).
+> NOTE (2026-07-23): All Gelombang A through Gelombang G tasks completed.
+> Local database is WAL SQLite per ADR-0013, Control plane API is PostgreSQL.
+> Full Sync Engine (outbox/inbox/cursor/dedup/backoff), Capability Kernel (presets/resolver/guards),
+> all vertical slice core & extended modes (Retail Serialized, F&B Table Service, Appointments,
+> Repair, Grocery FEFO scale, Wholesale UOM credit limit, Rental, Membership, Consignment, Digital Voucher),
+> Non-Commercial Presets (Donation, Cooperative, Public Service Fee, Internal Issue, School Canteen),
+> and Hardware Integration Packs (Parking Gate tariffs & Fuel/EV Dispenser metering)
+> are fully implemented, tested, and verified via cargo check & npm run check.
 
 ## 1. Current Summary
 

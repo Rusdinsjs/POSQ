@@ -1,12 +1,18 @@
 use sqlx::SqlitePool;
 use std::time::Duration;
 use reqwest::Client;
+use crate::sync_engine::{get_pending_outbox_events, mark_events_pushed, PushBatchRequest, PushBatchResponse};
 
 pub async fn start_sync_worker(pool: SqlitePool) {
-    let client = Client::new();
-    
+    let client = Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .unwrap_or_else(|_| Client::new());
+
+    let mut backoff_secs = 5u64;
+
     loop {
-        // 1. Fetch settings from DB
+        // Fetch network settings
         let settings = match crate::settings::get_network_settings_internal(&pool).await {
             Ok(s) => s,
             Err(_) => {
@@ -15,45 +21,65 @@ pub async fn start_sync_worker(pool: SqlitePool) {
             }
         };
 
-        // 2. Only run sync if enabled
         if settings.cloud_sync_enabled && !settings.cloud_vps_url.is_empty() {
-            let _ = process_queue(&pool, &client, &settings.cloud_vps_url, &settings.cloud_vps_token).await;
+            match sync_outbox_push(&pool, &client, &settings.cloud_vps_url, &settings.cloud_vps_token).await {
+                Ok(pushed_count) => {
+                    if pushed_count > 0 {
+                        println!("[SyncWorker] Successfully pushed {} outbox events to server.", pushed_count);
+                    }
+                    backoff_secs = 5; // Reset backoff on success
+                }
+                Err(err) => {
+                    eprintln!("[SyncWorker] Sync push error: {}. Retrying in {}s", err, backoff_secs);
+                    tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+                    backoff_secs = (backoff_secs * 2).min(300); // Exponential backoff max 5m
+                    continue;
+                }
+            }
         }
 
-        // Sleep for 30 seconds before next check
-        tokio::time::sleep(Duration::from_secs(30)).await;
+        tokio::time::sleep(Duration::from_secs(15)).await;
     }
 }
 
-async fn process_queue(pool: &SqlitePool, _client: &Client, _cloud_url: &str, _token: &str) -> Result<(), String> {
-    use sqlx::Row;
+async fn sync_outbox_push(
+    pool: &SqlitePool,
+    client: &Client,
+    base_url: &str,
+    token: &str,
+) -> Result<usize, String> {
+    let pending_events = get_pending_outbox_events(pool, 50).await?;
+    if pending_events.is_empty() {
+        return Ok(0);
+    }
 
-    // Fetch up to 50 pending actions
-    let records = sqlx::query("SELECT id, action_type, payload_json FROM sync_queue WHERE status = 'PENDING' LIMIT 50")
-        .fetch_all(pool)
+    let push_url = format!("{}/api/v1/sync/push", base_url.trim_end_matches('/'));
+
+    let batch = PushBatchRequest {
+        device_id: "desktop_device".into(),
+        merchant_id: "default_merchant".into(),
+        outlet_id: "default_outlet".into(),
+        events: pending_events,
+    };
+
+    let resp = client
+        .post(&push_url)
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&batch)
+        .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Network request failed: {}", e))?;
 
-    if records.is_empty() {
-        return Ok(());
+    if !resp.status().is_success() {
+        return Err(format!("Server returned HTTP {}", resp.status()));
     }
 
-    println!("Found {} items in sync queue, processing...", records.len());
+    let ack_resp: PushBatchResponse = resp.json().await.map_err(|e| format!("Invalid server JSON response: {}", e))?;
 
-    for r in records {
-        let id: String = r.try_get("id").unwrap_or_default();
-        let _action_type: String = r.try_get("action_type").unwrap_or_default();
-        let _payload: String = r.try_get("payload_json").unwrap_or_default();
-
-        // TODO: In a real implementation, send payload to the Cloud VPS API here.
-        // let response = client.post(cloud_url).json(&payload).send().await;
-
-        // Mark as completed in local DB
-        let _ = sqlx::query("UPDATE sync_queue SET status = 'COMPLETED' WHERE id = ?")
-            .bind(&id)
-            .execute(pool)
-            .await;
+    let count = ack_resp.ack_event_ids.len();
+    if count > 0 {
+        mark_events_pushed(pool, &ack_resp.ack_event_ids).await?;
     }
 
-    Ok(())
+    Ok(count)
 }

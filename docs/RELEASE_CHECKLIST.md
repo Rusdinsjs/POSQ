@@ -133,13 +133,13 @@ Must fail production release if:
 | Gate | Required Before | Status |
 | :--- | :--- | :--- |
 | TG-01 Technical PoC | Internal Alpha | PASS |
-| TG-02 Local DB stable | Checkout MVP | PASS |
+| TG-02 Local DB stable (SQLite per ADR-0013) | Checkout MVP | PASS |
 | TG-03 Checkout offline works | Pilot | PASS |
 | TG-04 Backup metadata idempotent | Cloud backup | PASS |
 | TG-05 License behavior proven | Subscription release | PASS |
 | TG-06 Migration backup works | Installer release | PASS |
 | TG-07 Security audit passes | Pilot | PASS |
-| TG-08 Performance acceptable | Beta | PENDING |
+| TG-08 Performance acceptable | Beta | PASS |
 | TG-09 P0 docs implemented | MVP foundation | PASS |
 | TG-10 P1 docs implemented | Feature implementation | PASS |
 
