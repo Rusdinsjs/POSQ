@@ -1,0 +1,73 @@
+[package]
+name = "control-plane-api"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "control-plane-api"
+path = "src/main.rs"
+
+[[bin]]
+name = "control-plane-worker"
+path = "src/worker_main.rs"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "limit", "trace", "request-id", "util"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json"] }
+
+# Auth & Security
+jsonwebtoken = "9.0"
+argon2 = "0.5"
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+ed25519-dalek = { version = "2.1", features = ["pkcs8"] }
+pkcs8 = "0.10"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Logging & Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] }
+tracing-appender = "0.2"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Config
+dotenvy = "0.15"
+config = "0.14"
+
+# Validation
+validator = { version = "0.18", features = ["derive"] }
+
+# Redis (for rate limiting and caching)
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# IP validation (for SSRF protection)
+ipnet = "2.9"
+
+[dev-dependencies]
+tower = { version = "0.4", features = ["util"] }
+http-body-util = "0.1"
