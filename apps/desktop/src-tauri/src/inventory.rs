@@ -1,8 +1,66 @@
-use sqlx::{SqlitePool, Row};
+use serde::{Deserialize, Serialize};
+use sqlx::{Row, SqlitePool};
+use std::collections::HashMap;
 use tauri::State;
 use uuid::Uuid;
-use serde::Serialize;
-use std::collections::HashMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MovementType {
+    InOpening,
+    InAdjustment,
+    OutUsage,
+    OutWaste,
+    Transfer,
+}
+
+impl MovementType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MovementType::InOpening => "IN_OPENING",
+            MovementType::InAdjustment => "IN_ADJUSTMENT",
+            MovementType::OutUsage => "OUT_USAGE",
+            MovementType::OutWaste => "OUT_WASTE",
+            MovementType::Transfer => "TRANSFER",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InventoryProductModel {
+    pub id: String,
+    pub merchant_id: String,
+    pub category_id: Option<String>,
+    pub sku: String,
+    pub name: String,
+    pub price: i32,
+    pub cost: i32,
+    pub qty_on_hand: f64,
+    pub track_stock: bool,
+    pub is_ingredient: bool,
+    pub erp_item_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecipeItemModel {
+    pub id: String,
+    pub product_id: String,
+    pub ingredient_id: String,
+    pub ingredient_name: String,
+    pub quantity: f64,
+    pub unit: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StockMovementRecord {
+    pub id: String,
+    pub product_id: String,
+    pub movement_type: String,
+    pub qty_delta: f64,
+    pub reason: Option<String>,
+    pub reference_number: Option<String>,
+    pub erp_synced: bool,
+    pub created_at: String,
+}
 
 #[derive(Serialize)]
 pub struct LowStockItem {
@@ -298,14 +356,36 @@ async fn process_stock_movement(product_id: Uuid, qty_delta: f64, movement_type:
 
     crate::audit::log_action(
         &mut *tx, 
-        merchant_id, 
-        Some(outlet_id), 
+        merchant_id.clone(), 
+        Some(outlet_id.clone()), 
         user_id.to_string(), 
         movement_type, 
         "inventory", 
         Some(product_id.to_string()), 
         reason.as_deref()
     ).await?;
+
+    let payload = serde_json::json!({
+        "movement_id": movement_id.to_string(),
+        "product_id": product_id.to_string(),
+        "qty_delta": qty_delta,
+        "movement_type": movement_type,
+        "reason": reason
+    });
+
+    crate::sync_engine::enqueue_outbox_event_tx(
+        &mut tx,
+        "stock_movement_created",
+        "inventory",
+        &movement_id.to_string(),
+        1,
+        &merchant_id,
+        &outlet_id,
+        "desktop_device",
+        Some(&user_id.to_string()),
+        &payload.to_string(),
+    )
+    .await?;
 
     tx.commit().await.map_err(|e| e.to_string())?;
 
@@ -568,16 +648,334 @@ pub async fn create_product(
     // Audit Log
     crate::audit::log_action(
         &mut *tx,
-        merchant_id,
-        Some(outlet_id),
+        merchant_id.clone(),
+        Some(outlet_id.clone()),
         user_id.to_string(),
         "create_product",
         "product",
-        Some(product_id),
+        Some(product_id.clone()),
         Some(&format!("Nama: {}, SKU: {}, Harga: {}", name, sku, price))
     ).await?;
 
+    let payload = serde_json::json!({
+        "action": "upsert_item",
+        "product_id": product_id,
+        "sku": sku,
+        "name": name,
+        "price": price,
+        "cost": cost.unwrap_or(0),
+        "track_stock": track_stock,
+        "is_ingredient": is_ingredient.unwrap_or(false),
+        "initial_qty": initial_qty
+    });
+
+    crate::sync_engine::enqueue_outbox_event_tx(
+        &mut tx,
+        "upsert_item",
+        "inventory_item",
+        &product_id,
+        1,
+        &merchant_id,
+        &outlet_id,
+        "desktop_device",
+        Some(&user_id.to_string()),
+        &payload.to_string(),
+    )
+    .await?;
+
     tx.commit().await.map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_product_erp_id(
+    local_id: String,
+    erp_item_id: String,
+    pool: State<'_, SqlitePool>,
+) -> Result<(), String> {
+    sqlx::query("UPDATE products SET erp_item_id = ? WHERE id = ?")
+        .bind(&erp_item_id)
+        .bind(&local_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_all_products(
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<InventoryProductModel>, String> {
+    let records = sqlx::query(
+        r#"
+        SELECT p.id, p.merchant_id, p.category_id, p.sku, p.name, p.price, COALESCE(p.cost, 0) as cost,
+               p.track_stock, p.is_ingredient, p.erp_item_id
+        FROM products p
+        WHERE p.active = 1
+        ORDER BY p.name ASC
+        "#
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let dynamic_stocks = compute_dynamic_stocks(pool.inner()).await?;
+
+    let products = records
+        .into_iter()
+        .map(|r| {
+            let pid: String = r.get("id");
+            let qty = dynamic_stocks.get(&pid).copied().unwrap_or(0.0);
+            InventoryProductModel {
+                id: pid,
+                merchant_id: r.get("merchant_id"),
+                category_id: r.get("category_id"),
+                sku: r.get("sku"),
+                name: r.get("name"),
+                price: r.get("price"),
+                cost: r.get("cost"),
+                qty_on_hand: qty,
+                track_stock: r.get("track_stock"),
+                is_ingredient: r.get("is_ingredient"),
+                erp_item_id: r.get("erp_item_id"),
+            }
+        })
+        .collect();
+
+    Ok(products)
+}
+
+pub async fn record_stock_movement(
+    product_id: &str,
+    movement_type: MovementType,
+    quantity: f64,
+    reference_type: &str,
+    reference_id: &str,
+    user_id: &str,
+    pool: &SqlitePool,
+) -> Result<(), String> {
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    let prod_row = sqlx::query("SELECT erp_item_id, merchant_id FROM products WHERE id = ?")
+        .bind(product_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Produk ID {} tidak ditemukan", product_id))?;
+
+    let erp_item_id: Option<String> = prod_row.get("erp_item_id");
+    let merchant_id: String = prod_row.get("merchant_id");
+
+    let inv_row = sqlx::query("SELECT outlet_id, qty_on_hand FROM inventory_items WHERE product_id = ? LIMIT 1")
+        .bind(product_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let (outlet_id, current_stock) = if let Some(r) = inv_row {
+        let oid: String = r.get("outlet_id");
+        let qty = crate::db::get_numeric_as_f64(&r, "qty_on_hand");
+        (oid, qty)
+    } else {
+        ("default_outlet".to_string(), 0.0)
+    };
+
+    let qty_delta = match movement_type {
+        MovementType::OutUsage | MovementType::OutWaste => -quantity.abs(),
+        _ => quantity.abs(),
+    };
+
+    if (movement_type == MovementType::OutUsage || movement_type == MovementType::OutWaste)
+        && current_stock + qty_delta < 0.0
+    {
+        return Err(format!(
+            "InsufficientStock: Stok tidak mencukupi (Tersedia: {}, Diminta: {})",
+            current_stock, quantity
+        ));
+    }
+
+    let movement_id = Uuid::new_v4().to_string();
+    let ref_number = format!("POSQ-{}-{}", reference_id, Uuid::new_v4().to_string().split_at(8).0);
+
+    sqlx::query(
+        r#"
+        INSERT INTO stock_movements (id, merchant_id, outlet_id, product_id, movement_type, qty_delta, reason, reference_number, erp_synced, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP)
+        "#
+    )
+    .bind(&movement_id)
+    .bind(&merchant_id)
+    .bind(&outlet_id)
+    .bind(product_id)
+    .bind(movement_type.as_str())
+    .bind(qty_delta)
+    .bind(reference_type)
+    .bind(&ref_number)
+    .bind(user_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query("UPDATE inventory_items SET qty_on_hand = qty_on_hand + ?, updated_at = CURRENT_TIMESTAMP WHERE product_id = ?")
+        .bind(qty_delta)
+        .bind(product_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let payload = serde_json::json!({
+        "action": "record_movement",
+        "product_id": product_id,
+        "erp_item_id": erp_item_id,
+        "movement_type": movement_type.as_str(),
+        "quantity": qty_delta,
+        "reference_number": ref_number,
+        "requires_item_mapping": erp_item_id.is_none()
+    });
+
+    crate::sync_engine::enqueue_outbox_event_tx(
+        &mut tx,
+        "record_movement",
+        "inventory_movement",
+        &movement_id,
+        1,
+        &merchant_id,
+        &outlet_id,
+        "desktop_device",
+        Some(user_id),
+        &payload.to_string(),
+    )
+    .await?;
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn record_opening_balance(
+    product_id: String,
+    qty: f64,
+    user_id: Option<String>,
+    pool: State<'_, SqlitePool>,
+) -> Result<(), String> {
+    let uid = user_id.unwrap_or_else(|| "system".to_string());
+    record_stock_movement(&product_id, MovementType::InOpening, qty, "opening_balance", &Uuid::new_v4().to_string(), &uid, pool.inner()).await
+}
+
+#[tauri::command]
+pub async fn record_stock_adjustment(
+    product_id: String,
+    new_physical_qty: f64,
+    notes: Option<String>,
+    user_id: Option<String>,
+    pool: State<'_, SqlitePool>,
+) -> Result<(), String> {
+    let uid = user_id.unwrap_or_else(|| "system".to_string());
+    let current_qty: f64 = sqlx::query_scalar("SELECT qty_on_hand FROM inventory_items WHERE product_id = ?")
+        .bind(&product_id)
+        .fetch_optional(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?
+        .unwrap_or(0.0);
+
+    let delta = new_physical_qty - current_qty;
+    let mtype = if delta >= 0.0 {
+        MovementType::InAdjustment
+    } else {
+        MovementType::OutWaste
+    };
+
+    let ref_reason = notes.unwrap_or_else(|| "stock_adjustment".to_string());
+
+    record_stock_movement(&product_id, mtype, delta.abs(), &ref_reason, &Uuid::new_v4().to_string(), &uid, pool.inner()).await
+}
+
+#[tauri::command]
+pub async fn get_stock_movements(
+    product_id: String,
+    limit: Option<i64>,
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<StockMovementRecord>, String> {
+    let lim = limit.unwrap_or(50);
+    let rows = sqlx::query(
+        "SELECT id, product_id, movement_type, qty_delta, reason, reference_number, erp_synced, created_at FROM stock_movements WHERE product_id = ? ORDER BY created_at DESC LIMIT ?"
+    )
+    .bind(&product_id)
+    .bind(lim)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let movements = rows
+        .into_iter()
+        .map(|r| StockMovementRecord {
+            id: r.get("id"),
+            product_id: r.get("product_id"),
+            movement_type: r.get("movement_type"),
+            qty_delta: r.get("qty_delta"),
+            reason: r.get("reason"),
+            reference_number: r.get("reference_number"),
+            erp_synced: r.get::<i64, _>("erp_synced") == 1,
+            created_at: r.get("created_at"),
+        })
+        .collect();
+
+    Ok(movements)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionItem {
+    pub product_id: String,
+    pub quantity: f64,
+}
+
+pub async fn deduct_stock_for_transaction(
+    items: &[TransactionItem],
+    transaction_id: &str,
+    user_id: &str,
+    pool: &SqlitePool,
+) -> Result<(), String> {
+    for item in items {
+        let recipe_rows = sqlx::query("SELECT ingredient_id, quantity FROM product_recipes WHERE product_id = ?")
+            .bind(&item.product_id)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !recipe_rows.is_empty() {
+            for r in recipe_rows {
+                let ingredient_id: String = r.get("ingredient_id");
+                let recipe_qty = crate::db::get_numeric_as_f64(&r, "quantity");
+                let total_deduction = recipe_qty * item.quantity;
+
+                record_stock_movement(
+                    &ingredient_id,
+                    MovementType::OutUsage,
+                    total_deduction,
+                    "pos_checkout_recipe",
+                    transaction_id,
+                    user_id,
+                    pool,
+                )
+                .await
+                .map_err(|e| format!("InsufficientStockForRecipe: Gagal memproses resep untuk bahan ID {} ({})", ingredient_id, e))?;
+            }
+        } else {
+            record_stock_movement(
+                &item.product_id,
+                MovementType::OutUsage,
+                item.quantity,
+                "pos_checkout",
+                transaction_id,
+                user_id,
+                pool,
+            )
+            .await
+            .map_err(|e| format!("InsufficientStock: Stok produk ID {} tidak mencukupi ({})", item.product_id, e))?;
+        }
+    }
 
     Ok(())
 }

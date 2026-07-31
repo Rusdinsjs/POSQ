@@ -44,8 +44,54 @@ pub async fn establish_connection() -> Result<SqlitePool, String> {
         .map_err(|e| format!("Failed to connect to SQLite: {}", e))?;
 
     run_capability_migrations(&pool).await?;
+    run_sync_migrations(&pool).await?;
+    run_inventory_migrations(&pool).await?;
 
     Ok(pool)
+}
+
+pub async fn run_inventory_migrations(pool: &SqlitePool) -> Result<(), String> {
+    sqlx::query("ALTER TABLE products ADD COLUMN erp_item_id TEXT;").execute(pool).await.ok();
+
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS product_recipes (
+            id TEXT PRIMARY KEY,
+            product_id TEXT NOT NULL,
+            ingredient_id TEXT NOT NULL,
+            quantity REAL NOT NULL DEFAULT 1.0,
+            unit TEXT NOT NULL DEFAULT 'pcs',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+            FOREIGN KEY (ingredient_id) REFERENCES products(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_product_recipes_prod 
+            ON product_recipes(product_id);
+
+        CREATE TABLE IF NOT EXISTS stock_movements (
+            id TEXT PRIMARY KEY,
+            merchant_id TEXT NOT NULL,
+            outlet_id TEXT NOT NULL,
+            product_id TEXT NOT NULL,
+            movement_type TEXT NOT NULL,
+            qty_delta REAL NOT NULL,
+            reason TEXT,
+            reference_number TEXT,
+            erp_synced INTEGER NOT NULL DEFAULT 0,
+            created_by TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_stock_movements_prod 
+            ON stock_movements(product_id, created_at);
+        "#
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to run inventory migrations: {}", e))?;
+
+    Ok(())
 }
 
 pub async fn run_capability_migrations(pool: &SqlitePool) -> Result<(), String> {
@@ -68,6 +114,57 @@ pub async fn run_capability_migrations(pool: &SqlitePool) -> Result<(), String> 
     .execute(pool)
     .await
     .map_err(|e| format!("Failed to run capability migrations: {}", e))?;
+
+    Ok(())
+}
+
+pub async fn run_sync_migrations(pool: &SqlitePool) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS sync_outbox (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL UNIQUE,
+            event_type TEXT NOT NULL,
+            aggregate_type TEXT NOT NULL,
+            aggregate_id TEXT NOT NULL,
+            aggregate_version INTEGER NOT NULL DEFAULT 1,
+            schema_version INTEGER NOT NULL DEFAULT 1,
+            merchant_id TEXT NOT NULL,
+            outlet_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            actor_id TEXT,
+            payload_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            pushed_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sync_outbox_status_created 
+            ON sync_outbox(status, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_sync_outbox_event_id 
+            ON sync_outbox(event_id);
+
+        CREATE TABLE IF NOT EXISTS sync_inbox (
+            id TEXT PRIMARY KEY,
+            event_id TEXT NOT NULL UNIQUE,
+            event_type TEXT NOT NULL,
+            aggregate_type TEXT NOT NULL,
+            aggregate_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'applied',
+            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sync_inbox_event_id 
+            ON sync_inbox(event_id);
+        "#
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to run sync migrations: {}", e))?;
 
     Ok(())
 }

@@ -35,6 +35,7 @@ mod fraud_detection;
 mod users;
 mod capabilities;
 mod sync_engine;
+mod conflict_resolver;
 mod serialized_inventory;
 mod table_service;
 mod appointments;
@@ -190,6 +191,11 @@ pub fn run() {
             inventory::stock_opname,
             inventory::transfer_stock,
             inventory::create_product,
+            inventory::get_all_products,
+            inventory::update_product_erp_id,
+            inventory::record_opening_balance,
+            inventory::record_stock_adjustment,
+            inventory::get_stock_movements,
             inventory::import_products_csv,
             inventory::get_inventory_products,
             inventory::update_product,
@@ -268,6 +274,7 @@ pub fn run() {
             capabilities::set_outlet_preset_cmd,
             capabilities::toggle_outlet_capability_cmd,
             sync_engine::get_sync_status_cmd,
+            sync_engine::get_sync_metrics_cmd,
             serialized_inventory::register_serial_unit_cmd,
             serialized_inventory::list_available_serials_cmd,
             table_service::update_session_state_cmd,

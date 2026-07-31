@@ -83,3 +83,53 @@ export interface CapabilityInfo {
   domain: CapabilityDomain;
 }
 
+export type SyncStatus = 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED';
+
+export interface SyncStats {
+  pending: number;
+  syncing: number;
+  synced: number;
+  failed: number;
+}
+
+export interface SyncOutboxEntry {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  idempotency_key: string;
+  payload: string;
+  status: SyncStatus;
+  retry_count: number;
+  max_retries: number;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+  synced_at: string | null;
+}
+
+export interface InventoryProduct {
+  id: string;
+  merchant_id: string;
+  category_id?: string | null;
+  sku: string;
+  name: string;
+  price: number;
+  cost: number;
+  qty_on_hand: number;
+  track_stock: boolean;
+  is_ingredient: boolean;
+  erp_item_id?: string | null;
+}
+
+export interface StockMovement {
+  id: string;
+  product_id: string;
+  movement_type: string;
+  qty_delta: number;
+  reason?: string | null;
+  reference_number?: string | null;
+  erp_synced: boolean;
+  created_at: string;
+}
+
+

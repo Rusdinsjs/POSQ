@@ -1065,7 +1065,7 @@ pub struct ProcessCheckoutItemInput {
     pub notes: Option<String>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PaymentInput {
     pub method: String,
     pub amount: i32,
@@ -1154,7 +1154,7 @@ pub async fn process_checkout(
     .await
     .map_err(|e| e.to_string())?;
 
-    for (product_id, sku, name, qty, unit_price, line_total, notes) in order_items_data {
+    for (product_id, sku, name, qty, unit_price, line_total, notes) in &order_items_data {
         sqlx::query(
             r#"
             INSERT INTO order_items (id, order_id, product_id, sku, name, qty, unit_price, discount_total, line_total, notes)
@@ -1174,6 +1174,40 @@ pub async fn process_checkout(
         .await
         .map_err(|e| e.to_string())?;
     }
+
+    let tx_items: Vec<crate::inventory::TransactionItem> = order_items_data
+        .iter()
+        .map(|(product_id, _sku, _name, qty, _unit_price, _line_total, _notes)| crate::inventory::TransactionItem {
+            product_id: product_id.clone(),
+            quantity: *qty as f64,
+        })
+        .collect();
+
+    crate::inventory::deduct_stock_for_transaction(&tx_items, &order_id, &user_id, pool.inner())
+        .await?;
+
+    let payload = serde_json::json!({
+        "order_id": order_id,
+        "order_number": order_number,
+        "grand_total": grand_total,
+        "paid_total": paid_total,
+        "change_total": change_total,
+        "payments": payments
+    });
+
+    crate::sync_engine::enqueue_outbox_event_tx(
+        &mut tx,
+        "order_created",
+        "order",
+        &order_id,
+        1,
+        &merchant_id,
+        &outlet_id,
+        "desktop_device",
+        Some(&user_id),
+        &payload.to_string(),
+    )
+    .await?;
 
     tx.commit().await.map_err(|e| e.to_string())?;
 
