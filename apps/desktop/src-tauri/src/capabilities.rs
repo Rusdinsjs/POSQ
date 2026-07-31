@@ -47,6 +47,7 @@ pub fn get_standard_presets() -> Vec<BusinessPreset> {
                 "checkout.basic".into(),
                 "checkout.refund".into(),
                 "promotion.basic".into(),
+                "shift.basic".into(),
             ],
         },
         BusinessPreset {
@@ -60,6 +61,8 @@ pub fn get_standard_presets() -> Vec<BusinessPreset> {
                 "checkout.basic".into(),
                 "checkout.trade_in".into(),
                 "warranty.tracking".into(),
+                "repair.tickets".into(),
+                "shift.basic".into(),
             ],
         },
         BusinessPreset {
@@ -73,6 +76,7 @@ pub fn get_standard_presets() -> Vec<BusinessPreset> {
                 "fnb.kds".into(),
                 "fnb.modifiers".into(),
                 "checkout.basic".into(),
+                "shift.basic".into(),
             ],
         },
         BusinessPreset {
@@ -88,6 +92,7 @@ pub fn get_standard_presets() -> Vec<BusinessPreset> {
                 "fnb.modifiers".into(),
                 "fnb.split_bill".into(),
                 "checkout.basic".into(),
+                "shift.basic".into(),
             ],
         },
         BusinessPreset {

@@ -1,6 +1,6 @@
-# Panduan Preset Bisnis POSQ (A - K)
+# Panduan Preset Bisnis POSQ (A - L)
 
-Dokumen ini menjelaskan daftar **11 Preset DNA Bisnis** yang didukung secara penuh oleh aplikasi POSQ, beserta tata letak menu navigasi dan kapabilitas bawaan masing-masing.
+Dokumen ini menjelaskan daftar **12 Preset DNA Bisnis** yang didukung secara penuh oleh aplikasi POSQ, beserta tata letak menu navigasi dan kapabilitas bawaan masing-masing.
 
 ---
 
@@ -8,7 +8,7 @@ Dokumen ini menjelaskan daftar **11 Preset DNA Bisnis** yang didukung secara pen
 
 1. Buka aplikasi POSQ Desktop.
 2. Navigasi ke menu **Pengaturan -> Mode Bisnis** (`/settings/business-mode`).
-3. Pilih salah satu kartu dari 11 Preset DNA Bisnis yang tersedia.
+3. Pilih salah satu kartu dari 12 Preset DNA Bisnis yang tersedia.
 4. Klik **"Aktifkan Preset Ini"**.
 5. Sistem akan menyimpan konfigurasi ke database SQLite lokal dan memperbarui bilah navigasi utama secara otomatis.
 
@@ -126,3 +126,14 @@ Dokumen ini menjelaskan daftar **11 Preset DNA Bisnis** yang didukung secara pen
   3. `📊 Trafik & Pendapatan Parkir` (`/reports`)
   4. `🔑 Setoran & Shift Petugas` (`/shift`)
   5. `⚙️ Pengaturan Tarif Parkir` (`/settings`)
+
+### L. SPBU / EV Charging (`fuel_energy`)
+- **Deskripsi**: Stasiun pengisian bahan bakar / listrik, pencatatan meter dispenser & rekonsiliasi.
+- **Menu Navigasi**:
+  1. `⛽ SPBU & Meter` (`/fuel`)
+  2. `🛒 Kasir BBM` (`/pos`)
+  3. `🗃️ Tangki & Stok` (`/inventory`)
+  4. `📊 Laporan Shift SPBU` (`/reports`)
+  5. `🔑 Kas & Shift` (`/shift`)
+  6. `⚙️ Pengaturan Dispenser` (`/settings`)
+
