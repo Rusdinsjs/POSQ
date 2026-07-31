@@ -1,6 +1,7 @@
 use std::env;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct Config {
     pub database_url: String,
     pub redis_url: String,

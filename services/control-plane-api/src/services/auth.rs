@@ -24,6 +24,7 @@ pub struct TokenClaims {
     pub iat: usize,
 }
 
+#[allow(dead_code)]
 pub fn hash_password(password: &str) -> Result<String, ApiError> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();

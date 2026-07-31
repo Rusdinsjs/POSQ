@@ -210,6 +210,7 @@ async fn check_license_renewals(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::
 }
 
 #[derive(sqlx::FromRow)]
+#[allow(dead_code)]
 struct Job {
     id: uuid::Uuid,
     job_type: String,
@@ -225,6 +226,7 @@ struct Job {
 }
 
 #[derive(sqlx::FromRow)]
+#[allow(dead_code)]
 struct Subscription {
     id: uuid::Uuid,
     merchant_id: uuid::Uuid,
@@ -235,6 +237,7 @@ struct Subscription {
 }
 
 #[derive(sqlx::FromRow)]
+#[allow(dead_code)]
 struct License {
     id: uuid::Uuid,
     device_id: uuid::Uuid,
