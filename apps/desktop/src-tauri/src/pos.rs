@@ -1056,3 +1056,220 @@ pub async fn delete_hold_draft(id: String, pool: State<'_, SqlitePool>) -> Resul
     tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ProcessCheckoutItemInput {
+    pub item_id: String,
+    pub quantity: f64,
+    pub modifiers: Option<Vec<String>>,
+    pub notes: Option<String>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct PaymentInput {
+    pub method: String,
+    pub amount: i32,
+}
+
+#[tauri::command]
+pub async fn process_checkout(
+    payload: Vec<ProcessCheckoutItemInput>,
+    payments: Vec<PaymentInput>,
+    pool: State<'_, SqlitePool>,
+) -> Result<String, String> {
+    if payload.is_empty() {
+        return Err("Payload keranjang kosong".into());
+    }
+    if payments.is_empty() {
+        return Err("Metode pembayaran kosong".into());
+    }
+
+    let mut subtotal: i32 = 0;
+    let mut order_items_data = Vec::new();
+
+    for item in &payload {
+        let row = sqlx::query("SELECT id, name, sku, price FROM products WHERE id = ?")
+            .bind(&item.item_id)
+            .fetch_optional(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Produk dengan ID {} tidak ditemukan", item.item_id))?;
+
+        let price: i32 = row.get("price");
+        let name: String = row.get("name");
+        let sku: String = row.get("sku");
+        let line_total = (price as f64 * item.quantity) as i32;
+        subtotal += line_total;
+
+        order_items_data.push((item.item_id.clone(), sku, name, item.quantity, price, line_total, item.notes.clone()));
+    }
+
+    let tax_total = (subtotal as f64 * 0.11) as i32;
+    let grand_total = subtotal + tax_total;
+
+    let paid_total: i32 = payments.iter().map(|p| p.amount).sum();
+    if paid_total < grand_total {
+        return Err(format!("Total pembayaran ({}) kurang dari total tagihan ({})", paid_total, grand_total));
+    }
+
+    let change_total = paid_total - grand_total;
+
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    let user = sqlx::query("SELECT id, merchant_id, outlet_id FROM users LIMIT 1")
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    let user_id: String = user.get("id");
+    let merchant_id: String = user.get("merchant_id");
+    let outlet_id: String = user.get::<Option<String>, _>("outlet_id").unwrap_or_else(|| "default_outlet".to_string());
+
+    let order_number = format!("ORD-{}", chrono::Utc::now().format("%Y%m%d%H%M%S"));
+    let order_id = Uuid::new_v4().to_string();
+
+    let primary_payment_method = payments.first().map(|p| p.method.clone()).unwrap_or_else(|| "CASH".to_string());
+
+    sqlx::query(
+        r#"
+        INSERT INTO orders (
+            id, merchant_id, outlet_id, order_number, status, grand_total,
+            subtotal, discount_total, tax_total, service_total, paid_total, change_total, created_by,
+            order_type, created_at
+        ) VALUES (?, ?, ?, ?, 'completed', ?, ?, 0, ?, 0, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        "#
+    )
+    .bind(&order_id)
+    .bind(&merchant_id)
+    .bind(&outlet_id)
+    .bind(&order_number)
+    .bind(grand_total)
+    .bind(subtotal)
+    .bind(tax_total)
+    .bind(paid_total)
+    .bind(change_total)
+    .bind(&user_id)
+    .bind(&primary_payment_method)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    for (product_id, sku, name, qty, unit_price, line_total, notes) in order_items_data {
+        sqlx::query(
+            r#"
+            INSERT INTO order_items (id, order_id, product_id, sku, name, qty, unit_price, discount_total, line_total, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+            "#
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&order_id)
+        .bind(&product_id)
+        .bind(&sku)
+        .bind(&name)
+        .bind(qty)
+        .bind(unit_price)
+        .bind(line_total)
+        .bind(notes)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    Ok(order_id)
+}
+
+#[tauri::command]
+pub async fn search_products(
+    query: String,
+    limit: Option<i64>,
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<ProductItem>, String> {
+    let lim = limit.unwrap_or(20);
+    let search_pattern = format!("%{}%", query.trim());
+
+    let records = sqlx::query(
+        r#"
+        SELECT p.id, p.name, p.sku, p.price, p.image_url, c.name as category_name, p.category_id
+        FROM products p
+        JOIN inventory_items i ON i.product_id = p.id
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE p.active = 1 AND p.is_ingredient = 0
+          AND (p.name LIKE ? OR p.sku LIKE ?)
+        ORDER BY p.name ASC
+        LIMIT ?
+        "#
+    )
+    .bind(&search_pattern)
+    .bind(&search_pattern)
+    .bind(lim)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let dynamic_stocks = crate::inventory::compute_dynamic_stocks(pool.inner()).await?;
+
+    let products = records.into_iter().map(|r| {
+        let id_str: String = r.get("id");
+        let qty_on_hand = dynamic_stocks.get(&id_str).copied().unwrap_or(0.0);
+        ProductItem {
+            id: Uuid::parse_str(&id_str).unwrap_or_default(),
+            name: r.get("name"),
+            sku: r.get("sku"),
+            price: r.get("price"),
+            qty_on_hand,
+            image_url: r.get("image_url"),
+            category_name: r.get("category_name"),
+            category_id: r.get("category_id"),
+        }
+    }).collect();
+
+    Ok(products)
+}
+
+#[tauri::command]
+pub async fn get_product_by_barcode(
+    barcode: String,
+    pool: State<'_, SqlitePool>,
+) -> Result<Option<ProductItem>, String> {
+    let clean_barcode = barcode.trim();
+
+    let record = sqlx::query(
+        r#"
+        SELECT p.id, p.name, p.sku, p.price, p.image_url, c.name as category_name, p.category_id
+        FROM products p
+        JOIN inventory_items i ON i.product_id = p.id
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE p.active = 1 AND p.is_ingredient = 0
+          AND (p.sku = ? OR p.id = ?)
+        LIMIT 1
+        "#
+    )
+    .bind(clean_barcode)
+    .bind(clean_barcode)
+    .fetch_optional(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if let Some(r) = record {
+        let dynamic_stocks = crate::inventory::compute_dynamic_stocks(pool.inner()).await?;
+        let id_str: String = r.get("id");
+        let qty_on_hand = dynamic_stocks.get(&id_str).copied().unwrap_or(0.0);
+
+        Ok(Some(ProductItem {
+            id: Uuid::parse_str(&id_str).unwrap_or_default(),
+            name: r.get("name"),
+            sku: r.get("sku"),
+            price: r.get("price"),
+            qty_on_hand,
+            image_url: r.get("image_url"),
+            category_name: r.get("category_name"),
+            category_id: r.get("category_id"),
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+
