@@ -18,3 +18,7 @@ export function showToast(msg: string, type: "success" | "error" | "warning" | "
         toastState.show = false;
     }, type === 'error' ? 4000 : 3000);
 }
+
+export function showCapabilityToast(capabilityName: string) {
+    showToast(`Fitur [${capabilityName}] tidak tersedia dalam paket langganan Anda. Hubungi admin untuk mengaktifkan.`, 'warning');
+}

@@ -5,18 +5,18 @@
 
   interface Props {
     products: Product[];
-    selectedCategory?: string | null;
-    onSelectProduct: (product: Product) => void;
+    selectedCategoryId?: string | null;
     isLoading?: boolean;
+    onSelectProduct?: (product: Product) => void;
   }
 
-  let { products, selectedCategory = null, onSelectProduct, isLoading = false }: Props = $props();
+  let { products, selectedCategoryId = null, isLoading = false, onSelectProduct }: Props = $props();
 
   // Filter products by selected category if provided
   let filteredProducts = $derived(
-    selectedCategory
+    selectedCategoryId && selectedCategoryId !== 'Semua'
       ? products.filter(
-          (p) => p.category_name === selectedCategory || p.category_id === selectedCategory
+          (p) => p.category_name === selectedCategoryId || p.category_id === selectedCategoryId
         )
       : products
   );
@@ -24,8 +24,8 @@
 
 <div class="w-full h-full flex flex-col overflow-hidden">
   {#if isLoading}
-    <!-- Loading Grid Skeleton -->
-    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 p-1 animate-pulse">
+    <!-- Skeleton Loading Grid -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 p-1 animate-pulse">
       {#each Array(10) as _}
         <div class="h-44 bg-slate-800/60 border border-slate-700/50 rounded-2xl p-3 flex flex-col justify-between">
           <div class="w-full h-24 bg-slate-700/50 rounded-xl"></div>
@@ -43,21 +43,21 @@
       class="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-500 space-y-3"
     >
       <div class="w-16 h-16 rounded-3xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-center text-3xl shadow-inner">
-        🔍
+        📦
       </div>
       <div>
-        <h4 class="text-sm font-bold text-slate-300">Produk Tidak Ditemukan</h4>
+        <h4 class="text-sm font-bold text-slate-300">Tidak Ada Produk</h4>
         <p class="text-xs text-slate-400 mt-1 max-w-xs">
-          Coba kata kunci pencarian lain atau pilih kategori produk yang berbeda.
+          Tidak ada produk yang tersedia dalam kategori ini atau hasil pencarian kosong.
         </p>
       </div>
     </div>
   {:else}
-    <!-- Product Grid Container with smooth transition -->
+    <!-- Responsive Product Grid with Smooth Transition -->
     <div
       in:fly={{ y: 8, duration: 150 }}
       out:fade={{ duration: 100 }}
-      class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3.5 p-1 overflow-y-auto custom-scrollbar"
+      class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 p-1 overflow-y-auto custom-scrollbar"
     >
       {#each filteredProducts as product (product.id)}
         <ProductCard {product} onSelect={onSelectProduct} />

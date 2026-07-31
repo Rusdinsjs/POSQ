@@ -36,7 +36,7 @@ class CartStore {
     const currentQty = existingIndex !== -1 ? this.items[existingIndex].quantity : 0;
     const targetQty = currentQty + qty;
 
-    // Check stock availability if present
+    // Stock availability validation
     if (availableStock !== undefined && availableStock !== null && targetQty > availableStock) {
       showToast(`Stok tidak mencukupi! Tersedia: ${availableStock}`, 'warning');
       return;
@@ -49,7 +49,7 @@ class CartStore {
         id: product.id,
         product,
         quantity: qty,
-        selectedModifiers: [],
+        modifier_ids: [],
         notes: ''
       });
     }
@@ -58,17 +58,16 @@ class CartStore {
   }
 
   /**
-   * Update item quantity by delta (+1 or -1)
+   * Update item quantity directly
    */
-  updateQuantity(productId: string, delta: number) {
-    const item = this.items.find((i) => i.product.id === productId);
-    if (!item) return;
-
-    const newQty = item.quantity + delta;
+  updateQty(itemId: string, newQty: number) {
     if (newQty <= 0) {
-      this.removeItem(productId);
+      this.removeItem(itemId);
       return;
     }
+
+    const item = this.items.find((i) => i.product.id === itemId);
+    if (!item) return;
 
     const availableStock = item.product.qty_on_hand ?? item.product.stock;
     if (availableStock !== undefined && availableStock !== null && newQty > availableStock) {
@@ -80,34 +79,22 @@ class CartStore {
   }
 
   /**
-   * Directly set item quantity
+   * Update item quantity by delta (+1 or -1)
    */
-  setQuantity(productId: string, qty: number) {
-    if (qty <= 0) {
-      this.removeItem(productId);
-      return;
-    }
-
-    const item = this.items.find((i) => i.product.id === productId);
+  updateQuantity(itemId: string, delta: number) {
+    const item = this.items.find((i) => i.product.id === itemId);
     if (!item) return;
-
-    const availableStock = item.product.qty_on_hand ?? item.product.stock;
-    if (availableStock !== undefined && availableStock !== null && qty > availableStock) {
-      showToast(`Stok tidak mencukupi! Tersedia: ${availableStock}`, 'warning');
-      return;
-    }
-
-    item.quantity = qty;
+    this.updateQty(itemId, item.quantity + delta);
   }
 
   /**
    * Remove item from cart
    */
-  removeItem(productId: string) {
-    const index = this.items.findIndex((i) => i.product.id === productId);
+  removeItem(itemId: string) {
+    const index = this.items.findIndex((i) => i.product.id === itemId);
     if (index !== -1) {
       const removed = this.items.splice(index, 1)[0];
-      showToast(`"${removed.product.name}" dihapus`, 'info');
+      showToast(`"${removed.product.name}" dihapus dari keranjang`, 'info');
     }
   }
 
@@ -120,14 +107,13 @@ class CartStore {
 
   /**
    * Prepare secure checkout payload for Rust backend (Tauri invoke).
-   * EXCLUDES frontend prices and totals for financial security.
+   * EXCLUDES frontend prices, subtotals, and totals for financial security.
    */
   prepareCheckoutPayload(): CheckoutItemPayload[] {
     return this.items.map((item) => ({
       item_id: item.product.id,
       quantity: item.quantity,
-      modifiers: item.selectedModifiers && item.selectedModifiers.length > 0 ? item.selectedModifiers : undefined,
-      notes: item.notes || undefined
+      modifier_ids: item.modifier_ids && item.modifier_ids.length > 0 ? item.modifier_ids : undefined
     }));
   }
 }

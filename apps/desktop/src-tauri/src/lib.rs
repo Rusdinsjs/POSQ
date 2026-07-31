@@ -262,6 +262,7 @@ pub fn run() {
             users::assign_user_role,
             users::revoke_user_role,
             users::list_roles,
+            capabilities::check_capability_cmd,
             capabilities::get_effective_capabilities_cmd,
             capabilities::get_available_presets_cmd,
             capabilities::set_outlet_preset_cmd,

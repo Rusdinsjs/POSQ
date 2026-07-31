@@ -14,7 +14,7 @@
   {/if}
   {#each keys as k, i}
     <kbd
-      class="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700/80 text-slate-300 shadow-sm font-bold tracking-tight text-[10px]"
+      class="px-1.5 py-0.5 rounded-md bg-slate-800 border border-slate-700/80 border-b-2 text-white font-bold text-[10px] shadow-sm font-mono tracking-tight"
     >
       {k}
     </kbd>

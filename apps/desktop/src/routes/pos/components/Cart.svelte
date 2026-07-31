@@ -36,7 +36,7 @@
 
 <aside
   class="flex flex-col h-full bg-slate-900/90 border-l border-slate-800 overflow-hidden relative"
-  aria-label="Keranjang Belanja"
+  aria-label="Keranjang Belanja Kasir"
 >
   <!-- Cart Header -->
   <header class="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/60 backdrop-blur shrink-0">
@@ -66,7 +66,7 @@
     {/if}
   </header>
 
-  <!-- Cart Item List -->
+  <!-- Cart Item List with Vertical Scroll -->
   <div class="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
     {#if cartStore.items.length === 0}
       <div class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-500 space-y-3">
@@ -84,14 +84,14 @@
       {#each cartStore.items as item (item.product.id)}
         <CartItem
           {item}
-          onUpdateQuantity={(id, delta) => cartStore.updateQuantity(id, delta)}
+          onUpdateQty={(id, newQty) => cartStore.updateQty(id, newQty)}
           onRemove={(id) => cartStore.removeItem(id)}
         />
       {/each}
     {/if}
   </div>
 
-  <!-- Sticky Summary & Checkout Footer -->
+  <!-- Sticky Footer Summary & Checkout Button -->
   <footer class="p-4 border-t border-slate-800 bg-slate-900/95 backdrop-blur shadow-2xl space-y-3 sticky bottom-0 z-10 shrink-0">
     <div class="space-y-1.5 text-xs">
       <div class="flex justify-between text-slate-400">
@@ -113,8 +113,8 @@
     <button
       type="button"
       onclick={() => onCheckout?.()}
-      disabled={cartStore.items.length === 0}
-      class="w-full py-3.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none disabled:active:scale-100 text-white font-extrabold text-sm tracking-wide shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+      disabled={cartStore.totalItems === 0}
+      class="w-full py-4 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none disabled:active:scale-100 text-white font-extrabold text-sm tracking-wide shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer min-h-[48px]"
       aria-label="Proses Pembayaran dengan {cartStore.totalItems} item"
     >
       <span>BAYAR</span>

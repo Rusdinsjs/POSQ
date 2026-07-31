@@ -4,24 +4,6 @@ use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CapabilityDefinition {
-    pub key: String,
-    pub domain: String,
-    pub description: String,
-    pub dependencies: Vec<String>,
-    pub conflicts: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BusinessPreset {
-    pub code: String,
-    pub name: String,
-    pub version: i32,
-    pub description: String,
-    pub default_capabilities: Vec<String>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Capability {
     // F&B Domain
@@ -199,54 +181,12 @@ pub struct CapabilityDTO {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EffectiveCapabilitySet {
     pub outlet_id: String,
-    pub primary_preset_code: String,
     pub enabled_capabilities: HashSet<String>,
-}
-
-pub fn get_standard_presets() -> Vec<BusinessPreset> {
-    vec![
-        BusinessPreset {
-            code: "general_flexible".into(),
-            name: "Mode Umum & Fleksibel".into(),
-            version: 1,
-            description: "Modul POS dasar dengan kapabilitas yang dapat diatur manual".into(),
-            default_capabilities: vec![
-                Capability::MultiPayment.to_string(),
-                Capability::OfflineMode.to_string(),
-                Capability::AuditLog.to_string(),
-            ],
-        },
-        BusinessPreset {
-            code: "fnb_table_service".into(),
-            name: "F&B Table Service / Restoran".into(),
-            version: 1,
-            description: "Restoran meja, bayar belakangan, split bill, KDS".into(),
-            default_capabilities: vec![
-                Capability::TableManagement.to_string(),
-                Capability::SplitBill.to_string(),
-                Capability::RecipeManagement.to_string(),
-                Capability::KitchenDisplay.to_string(),
-                Capability::DiningSession.to_string(),
-                Capability::MultiPayment.to_string(),
-            ],
-        },
-        BusinessPreset {
-            code: "retail_standard".into(),
-            name: "Retail Standard".into(),
-            version: 1,
-            description: "Toko kelontong, fashion, minimarket dasar".into(),
-            default_capabilities: vec![
-                Capability::BarcodePrinting.to_string(),
-                Capability::BundleDiscount.to_string(),
-                Capability::MultiPayment.to_string(),
-            ],
-        },
-    ]
 }
 
 /// Core function to check if an outlet has a capability enabled in DB
 pub async fn has_capability(
-    db: &SqlitePool,
+    pool: &SqlitePool,
     outlet_id: &str,
     cap: Capability,
 ) -> Result<bool, String> {
@@ -257,7 +197,7 @@ pub async fn has_capability(
     .bind(outlet_id)
     .bind(&key)
     .bind(&key)
-    .fetch_optional(db)
+    .fetch_optional(pool)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -273,51 +213,21 @@ pub async fn has_capability(
     }
 }
 
-/// Guard ensuring an outlet has a single required capability.
-/// Called at the beginning of sensitive Tauri commands.
-pub async fn require_capability(
+/// Enforce a capability server-side. Returns Err if disabled.
+pub async fn enforce_capability(
+    pool: &SqlitePool,
     outlet_id: &str,
-    required: Capability,
-    db: &SqlitePool,
+    cap: Capability,
 ) -> Result<(), String> {
-    if !has_capability(db, outlet_id, required).await? {
-        return Err(format!(
-            "CAPABILITY_NOT_ENABLED: Kapabilitas '{}' ({}) tidak diaktifkan untuk outlet ini",
-            required.to_string(),
-            required.description()
-        ));
+    if has_capability(pool, outlet_id, cap).await? {
+        Ok(())
+    } else {
+        Err(format!(
+            "CAPABILITY_DISABLED: Kapabilitas '{}' ({}) tidak aktif untuk outlet ini",
+            cap.to_string(),
+            cap.description()
+        ))
     }
-    Ok(())
-}
-
-/// Guard requiring all capabilities in the slice to be enabled.
-pub async fn require_all_capabilities(
-    outlet_id: &str,
-    required: &[Capability],
-    db: &SqlitePool,
-) -> Result<(), String> {
-    for cap in required {
-        require_capability(outlet_id, *cap, db).await?;
-    }
-    Ok(())
-}
-
-/// Guard requiring at least one capability in the slice to be enabled.
-pub async fn require_any_capability(
-    outlet_id: &str,
-    required: &[Capability],
-    db: &SqlitePool,
-) -> Result<(), String> {
-    for cap in required {
-        if has_capability(db, outlet_id, *cap).await.unwrap_or(false) {
-            return Ok(());
-        }
-    }
-    let cap_names: Vec<String> = required.iter().map(|c| c.to_string()).collect();
-    Err(format!(
-        "CAPABILITY_NOT_ENABLED: Salah satu kapabilitas [{}] diperlukan untuk outlet ini",
-        cap_names.join(", ")
-    ))
 }
 
 /// Fetch all effective capabilities for an outlet
@@ -367,78 +277,13 @@ pub async fn get_outlet_capabilities(
     Ok(dtos)
 }
 
-pub async fn resolve_effective_capabilities(
-    pool: &SqlitePool,
-    outlet_id: &str,
-) -> Result<EffectiveCapabilitySet, String> {
-    let dtos = get_outlet_capabilities(pool, outlet_id).await?;
-    let enabled_set = dtos
-        .into_iter()
-        .filter(|d| d.enabled)
-        .map(|d| d.key)
-        .collect();
-
-    Ok(EffectiveCapabilitySet {
-        outlet_id: outlet_id.to_string(),
-        primary_preset_code: "general_flexible".to_string(),
-        enabled_capabilities: enabled_set,
-    })
-}
-
 // Tauri commands
-#[tauri::command]
-pub async fn check_capability_cmd(
-    pool: tauri::State<'_, SqlitePool>,
-    outlet_id: String,
-    capability_key: String,
-) -> Result<bool, String> {
-    if let Ok(cap) = Capability::from_str(&capability_key) {
-        has_capability(&pool, &outlet_id, cap).await
-    } else {
-        Ok(false)
-    }
-}
-
 #[tauri::command]
 pub async fn get_effective_capabilities_cmd(
     pool: tauri::State<'_, SqlitePool>,
     outlet_id: String,
-) -> Result<EffectiveCapabilitySet, String> {
-    resolve_effective_capabilities(&pool, &outlet_id).await
-}
-
-#[tauri::command]
-pub async fn get_available_presets_cmd() -> Result<Vec<BusinessPreset>, String> {
-    Ok(get_standard_presets())
-}
-
-#[tauri::command]
-pub async fn set_outlet_preset_cmd(
-    pool: tauri::State<'_, SqlitePool>,
-    outlet_id: String,
-    preset_code: String,
-    user_id: String,
-) -> Result<EffectiveCapabilitySet, String> {
-    let now = chrono::Utc::now().to_rfc3339();
-
-    sqlx::query(
-        "INSERT INTO outlet_profiles (outlet_id, primary_preset_code, preset_version, config_version, activated_at, activated_by)
-         VALUES (?, ?, 1, 1, ?, ?)
-         ON CONFLICT(outlet_id) DO UPDATE SET
-         primary_preset_code = excluded.primary_preset_code,
-         config_version = config_version + 1,
-         activated_at = excluded.activated_at,
-         activated_by = excluded.activated_by"
-    )
-    .bind(&outlet_id)
-    .bind(&preset_code)
-    .bind(&now)
-    .bind(&user_id)
-    .execute(&*pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    resolve_effective_capabilities(&pool, &outlet_id).await
+) -> Result<Vec<CapabilityDTO>, String> {
+    get_outlet_capabilities(&pool, &outlet_id).await
 }
 
 #[tauri::command]
@@ -448,7 +293,7 @@ pub async fn toggle_outlet_capability_cmd(
     capability_key: String,
     enabled: bool,
     user_id: String,
-) -> Result<EffectiveCapabilitySet, String> {
+) -> Result<Vec<CapabilityDTO>, String> {
     let now = chrono::Utc::now().to_rfc3339();
     let enabled_int = if enabled { 1 } else { 0 };
 
@@ -469,5 +314,5 @@ pub async fn toggle_outlet_capability_cmd(
     .await
     .map_err(|e| e.to_string())?;
 
-    resolve_effective_capabilities(&pool, &outlet_id).await
+    get_outlet_capabilities(&pool, &outlet_id).await
 }

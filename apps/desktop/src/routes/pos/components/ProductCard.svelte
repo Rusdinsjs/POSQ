@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { cartStore } from '$lib/stores/cart.svelte';
   import type { Product } from '$lib/types';
 
   interface Props {
     product: Product;
-    onSelect: (product: Product) => void;
+    onSelect?: (product: Product) => void;
   }
 
   let { product, onSelect }: Props = $props();
@@ -20,9 +21,9 @@
   );
 
   function handleClick() {
-    if (!isOutOfStock) {
-      onSelect(product);
-    }
+    if (isOutOfStock) return;
+    cartStore.addItem(product, 1);
+    if (onSelect) onSelect(product);
   }
 </script>
 
@@ -32,7 +33,7 @@
   onclick={handleClick}
   onkeydown={(e) => e.key === 'Enter' && handleClick()}
   class="relative flex flex-col justify-between bg-slate-800/80 border border-slate-700/70 rounded-2xl p-3 overflow-hidden transition-all duration-200 shadow-sm group select-none {isOutOfStock
-    ? 'opacity-60 cursor-not-allowed border-rose-500/20'
+    ? 'opacity-60 cursor-not-allowed border-rose-500/20 pointer-events-none'
     : 'hover:border-blue-500/60 hover:shadow-md hover:bg-slate-800 active:scale-[0.98] cursor-pointer'}"
   aria-disabled={isOutOfStock}
   aria-label="{product.name}, harga {formattedPrice}, {isOutOfStock ? 'stok habis' : `stok ${stockCount}`}"
@@ -69,7 +70,7 @@
       </div>
     {/if}
 
-    <!-- Dark Overlay for Out of Stock -->
+    <!-- Dark Semi-Transparent Overlay for Out of Stock -->
     {#if isOutOfStock}
       <div class="absolute inset-0 bg-slate-950/80 backdrop-blur-[1px] flex flex-col items-center justify-center z-10">
         <span class="text-rose-400 font-black text-sm tracking-wider uppercase">HABIS</span>
@@ -89,7 +90,7 @@
         {formattedPrice}
       </span>
       {#if product.sku}
-        <span class="text-[10px] font-mono text-slate-500 truncate max-w-[60px]">
+        <span class="text-[10px] font-mono text-slate-500 truncate max-w-[65px]">
           {product.sku}
         </span>
       {/if}

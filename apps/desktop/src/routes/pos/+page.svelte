@@ -4,6 +4,10 @@
     import { listen } from '@tauri-apps/api/event';
     import { goto } from '$app/navigation';
     import { showToast } from '$lib/toast.svelte';
+    import { useKeyboardShortcuts } from '$lib/hooks/useKeyboardShortcuts';
+    import { cartStore } from '$lib/stores/cart.svelte';
+    import { capabilityStore } from '$lib/capabilities';
+    import CapabilityGuard from '$lib/capabilities/CapabilityGuard.svelte';
 
     type Product = {
         id: string;
@@ -130,6 +134,35 @@
     let cartDiscountValue: number = $state(0);
     let activeCartDiscount: number = $state(0);
     let activeTaxRate: number = $state(11);
+
+    // Keyboard Shortcuts System ($effect lifecycle)
+    $effect(() => {
+        capabilityStore.fetchCapabilities();
+        const cleanup = useKeyboardShortcuts({
+            onOpenPayment: () => {
+                if (cartStore.totalItems > 0 || cart.length > 0) {
+                    showPaymentModal = true;
+                } else {
+                    showToast('Keranjang masih kosong', 'warning');
+                }
+            },
+            onEscape: () => {
+                showPaymentModal = false;
+                showShiftModal = false;
+                showCustomerModal = false;
+                showHoldModal = false;
+                showSavedBillsModal = false;
+                showCustomItemModal = false;
+                showCartDiscountModal = false;
+                showItemDiscountModal = false;
+                showItemCustomizerModal = false;
+            }
+        });
+
+        return () => {
+            if (cleanup) cleanup();
+        };
+    });
 
     // Item Discount & Customize state
     let discountingItemId: string | null = $state(null);

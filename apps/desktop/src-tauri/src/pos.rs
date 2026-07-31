@@ -1073,11 +1073,11 @@ pub struct PaymentInput {
 
 #[tauri::command]
 pub async fn process_checkout(
-    payload: Vec<ProcessCheckoutItemInput>,
+    cart_payload: Vec<ProcessCheckoutItemInput>,
     payments: Vec<PaymentInput>,
     pool: State<'_, SqlitePool>,
 ) -> Result<String, String> {
-    if payload.is_empty() {
+    if cart_payload.is_empty() {
         return Err("Payload keranjang kosong".into());
     }
     if payments.is_empty() {
@@ -1087,7 +1087,7 @@ pub async fn process_checkout(
     let mut subtotal: i32 = 0;
     let mut order_items_data = Vec::new();
 
-    for item in &payload {
+    for item in &cart_payload {
         let row = sqlx::query("SELECT id, name, sku, price FROM products WHERE id = ?")
             .bind(&item.item_id)
             .fetch_optional(pool.inner())

@@ -43,7 +43,33 @@ pub async fn establish_connection() -> Result<SqlitePool, String> {
         .await
         .map_err(|e| format!("Failed to connect to SQLite: {}", e))?;
 
+    run_capability_migrations(&pool).await?;
+
     Ok(pool)
+}
+
+pub async fn run_capability_migrations(pool: &SqlitePool) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS outlet_capabilities (
+            outlet_id TEXT NOT NULL,
+            capability TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+            granted_by TEXT,
+            PRIMARY KEY (outlet_id, capability),
+            FOREIGN KEY (outlet_id) REFERENCES outlets(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_outlet_caps_outlet 
+            ON outlet_capabilities(outlet_id);
+        "#
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| format!("Failed to run capability migrations: {}", e))?;
+
+    Ok(())
 }
 
 /// I-7: Local SQLite health check (LOCAL_POSTGRESQL_STRATEGY §8).
